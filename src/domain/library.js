@@ -1,7 +1,7 @@
 // The Library: anything you play, watch, read or listen to.
 // Games, shows, movies, books, anime, manga, podcasts, music — or your own type.
 import { HttpError, notFound } from '../api/errors.js';
-import { tx } from '../db/index.js';
+import { tx } from '../db/tx.js';
 
 export const ITEM_TYPES = {
   game:    { icon: '🎮', unit: '%' },

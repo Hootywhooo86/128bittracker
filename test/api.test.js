@@ -2,7 +2,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createApp } from '../src/server.js';
 import { openDb } from '../src/db/index.js';
-import { verifySignature } from '../src/domain/events.js';
+import { verifySignature } from '../src/domain/webhooks.js';
 import { toDay } from '../src/domain/dates.js';
 
 let base;
@@ -149,4 +149,25 @@ test('stats + export', async () => {
   const { body: ex } = await call('GET', '/api/v1/export');
   assert.equal(ex.format, '128bittracker-export');
   assert.ok(ex.items.length >= 2);
+});
+
+test('device sync: inbox returns other apps\' events, outbox fans out to webhooks', async () => {
+  const { body: phone } = await call('POST', '/api/v1/keys', { name: 'phone', scopes: ['sync'] });
+  const ph = { authorization: `Bearer ${phone.key}` };
+  const first = await call('GET', '/api/v1/sync/inbox?cursor=0', undefined, ph);
+  assert.equal(first.status, 200);
+  assert.ok(first.body.events.length > 0);
+  assert.ok(first.body.events.every((e) => e.source !== '128bittracker'));
+  const again = await call('GET', `/api/v1/sync/inbox?cursor=${first.body.cursor}`, undefined, ph);
+  assert.equal(again.body.events.length, 0);
+
+  delivered.length = 0;
+  const ev = { id: 'phone-1', type: 'streak.milestone', source: '128bittracker', occurred_at: new Date().toISOString(), data: { days: 7 } };
+  const pushed = await call('POST', '/api/v1/sync/outbox', [ev, ev, { type: 'game.started', source: '128bitplay' }], ph);
+  assert.deepEqual(pushed.body.map((p) => p.status), ['accepted', 'duplicate', 'error']);
+  await app.ctx.events.flush();
+  assert.deepEqual(delivered.map((d) => d.init.headers['x-128bit-event']), ['streak.milestone']);
+
+  // sync keys can't read the library
+  assert.equal((await call('GET', '/api/v1/items', undefined, ph)).status, 403);
 });

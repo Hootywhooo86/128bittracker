@@ -4,7 +4,7 @@
 import { normalizeEnvelope } from '../domain/events.js';
 import { applyPlayEvent } from './play.js';
 import { applyFamilyEvent } from './family.js';
-import { tx } from '../db/index.js';
+import { tx } from '../db/tx.js';
 
 export function ingest(ctx, raw, { defaultSource } = {}) {
   const ev = normalizeEnvelope(raw, { defaultSource });

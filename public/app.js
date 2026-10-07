@@ -1,4 +1,6 @@
-// 128bit Tracker web app — vanilla JS, talks to the same /api/v1 as everyone else.
+// 128bit Tracker app — vanilla JS. On the web it talks to the server's
+// /api/v1; in the Android app the same API runs on-device (see transport.js).
+import { request, platform } from './transport.js';
 
 const APP_COLORS = {
   '128bittracker': '#2dd4bf', '128bitplay': '#ff5d8f', '128bitfit': '#fb923c', '128bitgold': '#facc15',
@@ -15,16 +17,9 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const view = $('#view');
 
 async function api(method, path, body) {
-  const res = await fetch('/api/v1' + path, {
-    method,
-    headers: { 'x-128bit-client': 'web', ...(body !== undefined ? { 'content-type': 'application/json' } : {}) },
-    body: body === undefined ? undefined : JSON.stringify(body),
-    credentials: 'same-origin',
-  });
-  if (res.status === 204) return null;
-  const data = await res.json().catch(() => ({}));
-  if (res.status === 401 && path !== '/session') { showLogin(); throw new Error('login required'); }
-  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  const { status, data } = await request(method, path, body);
+  if (status === 401 && path !== '/session') { showLogin(); throw new Error('login required'); }
+  if (status >= 400) throw new Error(data?.error || `HTTP ${status}`);
   return data;
 }
 
@@ -81,6 +76,8 @@ $('#tabs').addEventListener('click', (e) => { const t = e.target.closest('.tab')
 window.addEventListener('popstate', () => go(location.pathname.slice(1), false));
 const current = () => location.pathname.slice(1) || 'today';
 const refresh = () => go(current(), false);
+// The Android app pulls in other apps' events in the background.
+window.addEventListener('tracker:synced', refresh);
 
 // ---------- login ----------
 function showLogin() {
@@ -423,6 +420,7 @@ const kpi = (k, v, s) => `<div class="kpi"><div class="k">${esc(k)}</div><div cl
 
 // ---------- CONNECT ----------
 async function renderConnect() {
+  if (platform !== 'web') return renderSync();
   const [keys, hooks] = await Promise.all([api('GET', '/keys'), api('GET', '/webhooks')]);
   const origin = location.origin;
   view.innerHTML = `
@@ -436,6 +434,7 @@ async function renderConnect() {
         <option value="read,ingest">read + send events</option>
         <option value="ingest">send events only</option>
         <option value="read">read only</option>
+        <option value="sync">phone sync (Android app)</option>
         <option value="read,write,ingest">full (no admin)</option>
       </select>
       <button class="btn">+ CREATE KEY</button>
@@ -510,6 +509,55 @@ async function renderConnect() {
     a.download = `128bittracker-${todayStr()}.json`;
     a.click();
     URL.revokeObjectURL(a.href);
+  }));
+}
+
+// ---------- SYNC (Android) ----------
+async function renderSync() {
+  const s = await api('GET', '/sync/settings');
+  const when = (iso) => (iso ? new Date(iso).toLocaleString() : 'never');
+  view.innerHTML = `
+    <h1 class="view-title"><span class="t">SYNC</span></h1>
+    <p class="view-sub">Everything lives on this phone and works offline. Link a Tracker server to pull in 128bitplay and other 128bit apps, and send your streaks back out.</p>
+    <h2 class="sec">SERVER</h2>
+    <form id="sync-form">
+      <div class="field"><label for="sy-url">SERVER URL</label><input class="input" id="sy-url" name="server_url" type="url" inputmode="url" placeholder="https://tracker.example.com" value="${esc(s.server_url ?? '')}"></div>
+      <div class="field"><label for="sy-key">SYNC KEY</label><input class="input" id="sy-key" name="api_key" autocomplete="off" placeholder="${s.has_key ? 'saved (tb128_…) — paste to replace' : 'tb128_…'}"></div>
+      <p class="muted" style="font-size:13px;line-height:1.6;margin-bottom:14px">On the server: Connect → API keys → "phone sync". Paste the key here once.</p>
+      <div class="row"><button class="btn teal">SAVE</button>${s.server_url ? '<button type="button" class="btn ghost" id="sy-unlink">UNLINK</button>' : ''}</div>
+    </form>
+    <h2 class="sec">STATUS</h2>
+    <div class="kpis">
+      ${kpi('LAST SYNC', s.last_sync_at ? new Date(s.last_sync_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '—', when(s.last_sync_at))}
+      ${kpi('PULLED', s.pulled_total ?? 0, 'events from other apps')}
+      ${kpi('SENT', s.pushed_total ?? 0, 'events to the server')}
+    </div>
+    ${s.last_error ? `<p class="nudge" style="margin-top:12px">Last error: ${esc(s.last_error)}</p>` : ''}
+    <div class="row" style="margin-top:16px"><button class="btn" id="sy-run" ${s.server_url && s.has_key ? '' : 'disabled'}>⟳ SYNC NOW</button></div>
+    <h2 class="sec">YOUR DATA</h2>
+    <p class="muted" style="margin-bottom:12px">Back up everything as one JSON file.</p>
+    <button class="btn ghost" id="export">⬇ EXPORT JSON</button>`;
+  $('#sync-form').addEventListener('submit', guard(async (e) => {
+    e.preventDefault();
+    const f = formData(e.target);
+    await api('PUT', '/sync/settings', { server_url: f.server_url, ...(f.api_key ? { api_key: f.api_key.trim() } : {}) });
+    toast('SAVED');
+    await renderSync();
+  }));
+  $('#sy-unlink')?.addEventListener('click', guard(async () => {
+    if (!confirm('Unlink this server? Your data stays on the phone.')) return;
+    await api('PUT', '/sync/settings', { server_url: '', api_key: '' });
+    await renderSync();
+  }));
+  $('#sy-run').addEventListener('click', guard(async () => {
+    $('#sy-run').disabled = true;
+    const r = await api('POST', '/sync/run', {});
+    toast(r.error ? `SYNC FAILED: ${r.error}` : `SYNCED · ${r.pulled} IN · ${r.pushed} OUT`, !!r.error);
+    await renderSync();
+  }));
+  $('#export').addEventListener('click', guard(async () => {
+    const data = await api('GET', '/export');
+    await api('POST', '/share-file', { name: `128bittracker-${todayStr()}.json`, text: JSON.stringify(data, null, 2) });
   }));
 }
 

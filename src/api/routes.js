@@ -1,13 +1,13 @@
-// REST API v1. Every route declares the scope it needs (null = public).
+// REST API v1 (server). Every route declares the scope it needs (null = public).
 import { createRouter } from './router.js';
 import { HttpError } from './errors.js';
-import * as trackers from '../domain/trackers.js';
-import * as library from '../domain/library.js';
-import * as stats from '../domain/stats.js';
+import { addCoreRoutes, metaInfo } from './core-routes.js';
 import * as keys from '../domain/apikeys.js';
 import * as hooks from '../domain/webhooks.js';
-import { listEvents } from '../domain/events.js';
+import { normalizeEnvelope } from '../domain/events.js';
 import { ingest, ingestBatch } from '../integrations/index.js';
+
+export { API_VERSION } from './core-routes.js';
 
 const id = (p) => {
   const n = Number(p.id);
@@ -15,23 +15,17 @@ const id = (p) => {
   return n;
 };
 
-export const API_VERSION = '1';
-
 export function buildRoutes(ctx, auth) {
   const r = createRouter();
   const { db } = ctx;
 
   // --- meta -----------------------------------------------------------------
   r.get('/api/v1', null, ({ principal }) => ({
-    name: '128bit Tracker',
-    api_version: API_VERSION,
+    ...metaInfo(),
+    platform: 'server',
     authenticated: !!principal,
     principal: principal ? { kind: principal.kind, scopes: principal.scopes, key: principal.key } : null,
     password_required: auth.passwordRequired,
-    item_types: library.ITEM_TYPES,
-    statuses: library.STATUSES,
-    tracker_kinds: trackers.KINDS,
-    presets: trackers.PRESETS,
     scopes: keys.SCOPES,
   }));
 
@@ -45,44 +39,9 @@ export function buildRoutes(ctx, auth) {
     return { ok: true };
   });
 
-  // --- habit trackers ---------------------------------------------------------
-  r.get('/api/v1/trackers', 'read', ({ query }) => trackers.listTrackers(ctx, { includeArchived: query.archived === 'true' }));
-  r.post('/api/v1/trackers', 'write', ({ body }) => [201, trackers.createTracker(ctx, body ?? {})]);
-  r.get('/api/v1/trackers/:id', 'read', ({ params }) => trackers.getTracker(ctx, id(params)));
-  r.patch('/api/v1/trackers/:id', 'write', ({ params, body }) => trackers.updateTracker(ctx, id(params), body ?? {}));
-  r.delete('/api/v1/trackers/:id', 'write', ({ params }) => (trackers.deleteTracker(ctx, id(params)), [204]));
-  r.post('/api/v1/trackers/:id/log', 'write', ({ params, body }) => [201, trackers.logTracker(ctx, id(params), body ?? {})]);
-  r.post('/api/v1/trackers/:id/undo', 'write', ({ params, body }) => trackers.undoLastLog(ctx, id(params), body?.day));
-  r.post('/api/v1/trackers/:id/freeze', 'write', ({ params, body }) => trackers.freezeDay(ctx, id(params), body?.day));
-  r.get('/api/v1/trackers/:id/logs', 'read', ({ params, query }) => trackers.listLogs(ctx, id(params), query));
+  addCoreRoutes(r, ctx);
 
-  // --- library ----------------------------------------------------------------
-  r.get('/api/v1/items', 'read', ({ query }) => library.listItems(ctx, query));
-  r.post('/api/v1/items', 'write', ({ body }) => [201, library.createItem(ctx, body ?? {})]);
-  r.get('/api/v1/items/:id', 'read', ({ params }) => library.getItem(ctx, id(params)));
-  r.patch('/api/v1/items/:id', 'write', ({ params, body }) => library.updateItem(ctx, id(params), body ?? {}));
-  r.delete('/api/v1/items/:id', 'write', ({ params }) => (library.deleteItem(ctx, id(params)), [204]));
-  r.post('/api/v1/items/:id/sessions', 'write', ({ params, body }) => [201, library.addSession(ctx, id(params), body ?? {})]);
-  r.get('/api/v1/lookup/:source/:externalId', 'read', ({ params }) => {
-    const item = library.findByExternal(ctx, params.source, params.externalId);
-    if (!item) throw new HttpError(404, 'item not found');
-    return library.getItem(ctx, item.id);
-  });
-
-  r.get('/api/v1/collections', 'read', () => library.listCollections(ctx));
-  r.post('/api/v1/collections', 'write', ({ body }) => [201, library.createCollection(ctx, body ?? {})]);
-  r.delete('/api/v1/collections/:id', 'write', ({ params }) => (library.deleteCollection(ctx, id(params)), [204]));
-  r.put('/api/v1/collections/:id/items/:itemId', 'write', ({ params }) => {
-    library.setCollectionMembership(ctx, id(params), id({ id: params.itemId }), true);
-    return [204];
-  });
-  r.delete('/api/v1/collections/:id/items/:itemId', 'write', ({ params }) => {
-    library.setCollectionMembership(ctx, id(params), id({ id: params.itemId }), false);
-    return [204];
-  });
-
-  // --- timeline + ingest --------------------------------------------------------
-  r.get('/api/v1/events', 'read', ({ query }) => listEvents(db, query));
+  // --- ingest -----------------------------------------------------------------
   r.post('/api/v1/events', 'ingest', ({ body, principal }) => {
     const defaultSource = principal.kind === 'key' ? slug(principal.key.name) : undefined;
     if (Array.isArray(body)) {
@@ -93,14 +52,37 @@ export function buildRoutes(ctx, auth) {
     return [res.status === 'accepted' ? 201 : res.status === 'rejected' ? 400 : 200, res];
   });
 
-  // --- stats + export -------------------------------------------------------------
-  r.get('/api/v1/stats', 'read', () => stats.overview(ctx));
-  r.get('/api/v1/stats/year/:year', 'read', ({ params }) => {
-    const y = Number(params.year);
-    if (!Number.isInteger(y) || y < 1970 || y > 2999) throw new HttpError(400, 'invalid year');
-    return stats.yearInPixels(ctx, y);
+  // --- device sync (the Android app) ---------------------------------------------
+  // Inbox: events other apps sent here, in arrival order, for the phone to apply.
+  r.get('/api/v1/sync/inbox', 'sync', ({ query }) => {
+    const cursor = Math.max(Number(query.cursor) || 0, 0);
+    const limit = Math.min(Math.max(Number(query.limit) || 200, 1), 500);
+    const rows = db
+      .prepare(`SELECT rowid AS seq, * FROM events WHERE rowid > ? AND source != '128bittracker' ORDER BY rowid LIMIT ${limit}`)
+      .all(cursor);
+    return {
+      events: rows.map(({ seq, payload, received_at, ...e }) => ({ ...e, data: JSON.parse(payload) })),
+      cursor: rows.length ? rows.at(-1).seq : cursor,
+      more: rows.length === limit,
+    };
   });
-  r.get('/api/v1/export', 'read', () => exportAll(db));
+  // Outbox: the phone's own events (habit.completed, streak.milestone, ...).
+  // Stored on the server timeline and fanned out to webhooks — no other effects.
+  r.post('/api/v1/sync/outbox', 'sync', ({ body }) => {
+    if (!Array.isArray(body)) throw new HttpError(400, 'send an array of events');
+    if (body.length > 500) throw new HttpError(413, 'max 500 events per batch');
+    return body.map((raw) => {
+      try {
+        const ev = normalizeEnvelope(raw);
+        if (ev.source !== '128bittracker') throw new HttpError(400, 'outbox only takes source 128bittracker');
+        if (!ctx.events.record(ev)) return { id: ev.id, status: 'duplicate' };
+        ctx.events.track(Promise.resolve(ctx.notify?.(ev)));
+        return { id: ev.id, status: 'accepted' };
+      } catch (err) {
+        return { id: raw?.id ?? null, status: 'error', error: err.message };
+      }
+    });
+  });
 
   // --- admin: keys + webhooks --------------------------------------------------------
   r.get('/api/v1/keys', 'admin', () => keys.listApiKeys(db));
@@ -116,21 +98,4 @@ export function buildRoutes(ctx, auth) {
 
 function slug(name) {
   return String(name).toLowerCase().replace(/[^a-z0-9_.-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 64) || 'api';
-}
-
-function exportAll(db) {
-  const all = (t) => db.prepare(`SELECT * FROM ${t}`).all();
-  return {
-    format: '128bittracker-export',
-    version: 1,
-    exported_at: new Date().toISOString(),
-    trackers: all('trackers'),
-    logs: all('logs'),
-    freezes: all('freezes'),
-    items: all('items').map((i) => ({ ...i, meta: JSON.parse(i.meta) })),
-    sessions: all('sessions'),
-    collections: all('collections'),
-    collection_items: all('collection_items'),
-    events: all('events').map(({ payload, ...e }) => ({ ...e, data: JSON.parse(payload) })),
-  };
 }

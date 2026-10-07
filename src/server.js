@@ -5,6 +5,7 @@ import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openDb } from './db/index.js';
 import { createEventBus } from './domain/events.js';
+import { createDispatcher } from './domain/webhooks.js';
 import { createAuth, requireScope } from './api/auth.js';
 import { buildRoutes } from './api/routes.js';
 import { HttpError } from './api/errors.js';
@@ -14,8 +15,9 @@ const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css', '.js': '
 const MAX_BODY = 1024 * 1024;
 
 export function createApp({ db = openDb(), fetchImpl, password, secret, corsOrigins = (process.env.TRACKER_CORS_ORIGINS ?? '').split(',').filter(Boolean) } = {}) {
-  const events = createEventBus(db, { fetchImpl });
-  const ctx = { db, events };
+  const notify = createDispatcher(db, { fetchImpl });
+  const events = createEventBus(db, { onCommit: notify });
+  const ctx = { db, events, notify };
   const auth = createAuth(db, { password, secret });
   const router = buildRoutes(ctx, auth);
 

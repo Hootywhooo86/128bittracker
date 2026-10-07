@@ -6,8 +6,9 @@ import { HttpError, notFound } from '../api/errors.js';
 // read   — GET anything (library, trackers, timeline, stats)
 // write  — create/update trackers, items, logs, sessions
 // ingest — POST 128bit events (what 128bitplay needs)
+// sync   — the Android app: pull other apps' events, push its own
 // admin  — manage API keys and webhooks
-export const SCOPES = ['read', 'write', 'ingest', 'admin'];
+export const SCOPES = ['read', 'write', 'ingest', 'sync', 'admin'];
 
 const hash = (key) => createHash('sha256').update(key).digest('hex');
 

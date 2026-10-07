@@ -1,0 +1,45 @@
+name: Android APK
+
+on:
+  push:
+    paths: ['src/**', 'public/**', 'mobile/**', 'test/**', '.github/workflows/android.yml']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Server tests
+        run: npm test
+
+      - name: Install mobile deps
+        working-directory: mobile
+        run: npm ci
+
+      - name: Device tests
+        working-directory: mobile
+        run: npm test
+
+      - name: Build debug APK
+        working-directory: mobile
+        run: npm run apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 128bittracker-debug-apk
+          path: mobile/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error

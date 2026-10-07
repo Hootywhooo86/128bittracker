@@ -8,7 +8,14 @@ Part of the 128bit family.
 > Product direction is Daniel's call. The landing page (`index.html`) is
 > live, and v0.1 of the app now lives in `src/` + `public/`.
 
-## Run it
+## Android app (APK)
+
+The phone app lives in [`mobile/`](mobile/README.md). It is the same Tracker
+running fully offline on the device, and it syncs with a Tracker server so
+128bitplay and the other 128bit apps can reach it. `cd mobile && npm ci && npm
+run apk` builds it, and GitHub Actions builds an APK on every push.
+
+## Run the server
 
 Needs Node 22.5+ and nothing else: no `npm install`, no database server.
 
@@ -46,21 +53,22 @@ npm test
 ```
 src/
   server.js            # node:http server, static UI + /api/v1
-  db/index.js          # node:sqlite, migrations, nestable transactions
+  db/                  # schema + migrations (shared), node:sqlite (server)
   domain/
     trackers.js        # habit CRUD, presets, logging, freezes
     streaks.js         # streak engine (pure, unit-tested)
     library.js         # items, sessions, collections
-    events.js          # 128bit envelope, timeline, signed webhooks
+    events.js          # 128bit envelope + timeline
     stats.js           # overview + year in pixels
     apikeys.js         # hashed, scoped API keys
-    webhooks.js
+    webhooks.js        # webhook CRUD + signed delivery (server only)
   integrations/
     index.js           # POST /events: idempotent, atomic per event
     play.js            # 128bitplay game.* → Library
     family.js          # any event → trackers that `listen` for it
-  api/                 # router, auth, routes
-public/                # the pixel web app (vanilla JS, no build step)
+  api/                 # router, auth; core-routes.js is shared with the phone
+public/                # the pixel app UI (vanilla JS), shared by web + Android
+mobile/                # Android app (Capacitor + sql.js), see mobile/README.md
 docs/API.md            # API reference for 128bitplay & siblings
 test/                  # node:test
 ```
@@ -86,8 +94,8 @@ Next up:
    dates for planned games.
 4. **Body & health trackers**: weight and measurements with charts (or pull
    from 128bitfit), sleep from phone health APIs.
-5. **PWA + offline**: installable, with a queue so logging works without signal.
-6. **Reminders**: per-tracker push notifications.
+5. **Reminders**: per-tracker notifications on Android.
+6. **Release signing + Play Store listing.**
 
 Later:
 - Correlations ("you sleep better on workout days"), a Pro candidate
@@ -95,7 +103,6 @@ Later:
 - Shared lists / friends' activity (opt-in), household trackers
 - Media-server integrations (Jellyfin/Plex/Kodi scrobbling), Spotify via 128bitmusic
 - Pixel themes & badge packs (cosmetic IAP)
-- Expo app on the same API
 
 ## Start-here brief for Claude
 

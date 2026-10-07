@@ -1,10 +1,11 @@
-// The 128bit event envelope, the unified timeline, and outbound webhooks.
+// The 128bit event envelope and the unified timeline.
+//
+// Runs on the server and on the phone, so no Node-only imports here.
 //
 // Envelope (v1), shared by every 128bit app:
 //   { id, type, source, occurred_at, title?, data }
 // `type` is `<noun>.<verb>` (workout.logged, game.completed, habit.completed).
 // `id` makes ingestion idempotent — resending the same event is a no-op.
-import { randomUUID, createHmac } from 'node:crypto';
 import { HttpError } from '../api/errors.js';
 
 const TYPE_RE = /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/;
@@ -20,7 +21,7 @@ export function normalizeEnvelope(input, { defaultSource } = {}) {
   if (Number.isNaN(occurred.getTime())) throw new HttpError(400, 'invalid occurred_at');
   const data = input.data ?? {};
   if (typeof data !== 'object' || Array.isArray(data)) throw new HttpError(400, 'data must be an object');
-  const id = input.id == null ? randomUUID() : String(input.id);
+  const id = input.id == null ? globalThis.crypto.randomUUID() : String(input.id);
   if (id.length > 128) throw new HttpError(400, 'id too long');
   return {
     id,
@@ -32,29 +33,35 @@ export function normalizeEnvelope(input, { defaultSource } = {}) {
   };
 }
 
-export function createEventBus(db, { fetchImpl = globalThis.fetch, log = console } = {}) {
-  const insert = db.prepare(
-    `INSERT INTO events (id, type, source, occurred_at, received_at, title, payload)
-     VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING`,
-  );
+/**
+ * The timeline store. `onCommit(ev)` runs for Tracker's own events once the
+ * surrounding transaction has settled — the server uses it for webhooks.
+ */
+export function createEventBus(db, { onCommit } = {}) {
   const pending = new Set();
 
   /** Store an event on the timeline. Returns false when it was a duplicate. */
   function record(ev) {
-    const res = insert.run(ev.id, ev.type, ev.source, ev.occurred_at, new Date().toISOString(), ev.title, JSON.stringify(ev.data));
+    const res = db
+      .prepare(
+        `INSERT INTO events (id, type, source, occurred_at, received_at, title, payload)
+         VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING`,
+      )
+      .run(ev.id, ev.type, ev.source, ev.occurred_at, new Date().toISOString(), ev.title, JSON.stringify(ev.data));
     return res.changes > 0;
   }
 
-  /** Record + fan out to subscribed webhooks. Used for Tracker's own events. */
+  /** Record one of Tracker's own events (habit.completed, streak.milestone, ...). */
   function emit(type, data, { title, occurred_at } = {}) {
     const ev = normalizeEnvelope({ type, source: '128bittracker', data, title, occurred_at });
-    if (record(ev)) {
-      // Deliver after the surrounding transaction settles, and only if the
-      // event survived it (a rolled-back ingest shouldn't notify anyone).
-      const p = new Promise((resolve) => setImmediate(resolve)).then(() => {
-        if (db.prepare('SELECT 1 FROM events WHERE id = ?').get(ev.id)) return dispatch(ev);
-      });
-      track(p);
+    if (record(ev) && onCommit) {
+      // Only notify once the event survived its transaction (a rolled-back
+      // ingest shouldn't notify anyone).
+      track(
+        new Promise((resolve) => setTimeout(resolve, 0)).then(() => {
+          if (db.prepare('SELECT 1 FROM events WHERE id = ?').get(ev.id)) return onCommit(ev);
+        }),
+      );
     }
     return ev;
   }
@@ -64,49 +71,12 @@ export function createEventBus(db, { fetchImpl = globalThis.fetch, log = console
     p.finally(() => pending.delete(p));
   }
 
-  function dispatch(ev) {
-    const hooks = db.prepare('SELECT * FROM webhooks WHERE active = 1').all();
-    for (const hook of hooks) {
-      const types = hook.event_types.split(',').map((s) => s.trim());
-      if (!types.some((t) => matchesType(t, ev.type))) continue;
-      track(deliver(hook, ev));
-    }
-  }
-
-  async function deliver(hook, ev) {
-    const body = JSON.stringify(ev);
-    const ts = Math.floor(Date.now() / 1000);
-    const sig = createHmac('sha256', hook.secret).update(`${ts}.${body}`).digest('hex');
-    let status = null;
-    let error = null;
-    try {
-      const res = await fetchImpl(hook.url, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'user-agent': '128bittracker-webhooks/1',
-          'x-128bit-event': ev.type,
-          'x-128bit-timestamp': String(ts),
-          'x-128bit-signature': `sha256=${sig}`,
-        },
-        body,
-        signal: AbortSignal.timeout(10_000),
-      });
-      status = res.status;
-      if (!res.ok) error = `HTTP ${res.status}`;
-    } catch (err) {
-      error = String(err?.message ?? err);
-      log.warn?.(`webhook ${hook.id} -> ${hook.url} failed: ${error}`);
-    }
-    db.prepare('UPDATE webhooks SET last_status = ?, last_error = ? WHERE id = ?').run(status, error, hook.id);
-  }
-
-  /** Wait for in-flight webhook deliveries (tests, graceful shutdown). */
+  /** Wait for in-flight notifications (tests, graceful shutdown). */
   async function flush() {
     while (pending.size) await Promise.allSettled([...pending]);
   }
 
-  return { record, emit, flush };
+  return { record, emit, flush, track };
 }
 
 export function listEvents(db, { before, after, type, source, limit = 50 } = {}) {
@@ -132,9 +102,4 @@ export function matchesType(pattern, type) {
   if (pattern === '*') return true;
   if (pattern.endsWith('.*')) return type.startsWith(pattern.slice(0, -1));
   return pattern === type;
-}
-
-export function verifySignature(secret, timestamp, body, header) {
-  const expected = 'sha256=' + createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex');
-  return expected === header;
 }

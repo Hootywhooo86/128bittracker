@@ -16,6 +16,7 @@ Authorization: Bearer tb128_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 | `read`   | every `GET`: library, trackers, timeline, stats, export   |
 | `write`  | create/update/delete trackers, logs, items, sessions      |
 | `ingest` | `POST /events`, which is how sibling apps report activity |
+| `sync`   | the Android app: `/sync/inbox` + `/sync/outbox` only      |
 | `admin`  | manage API keys and webhooks                              |
 
 Only a hash of each key is stored; the plaintext is shown once. Revoking a key
@@ -137,3 +138,12 @@ This is how 128bitplay (or 128bitlife) can reward streaks: subscribe to
 `streak.milestone` and hand out XP, badges or unlocks.
 
 `PATCH /webhooks/:id { active: false }` pauses a webhook. `DELETE` removes it.
+
+## Device sync (scope `sync`)
+
+The Android app uses these endpoints. Other apps don't need them.
+
+| Method | Path | |
+|---|---|---|
+| GET | `/sync/inbox?cursor=0&limit=200` | events from other sources, in arrival order → `{ events, cursor, more }`. Pass `cursor` back next time |
+| POST | `/sync/outbox` | array of the phone's own events (`source: "128bittracker"`). Stored and sent to webhooks, idempotent by `id` |

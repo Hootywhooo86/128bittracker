@@ -1,0 +1,16 @@
+{
+  "name": "128bittracker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "128bit Tracker — track anything, streak everything. Local-first tracker with a REST + webhook API for the 128bit family.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.5"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/server.js",
+    "dev": "node --disable-warning=ExperimentalWarning --watch src/server.js",
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js"
+  },
+  "license": "UNLICENSED"
+}

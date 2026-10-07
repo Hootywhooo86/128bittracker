@@ -7,7 +7,30 @@ Part of the 128bit family.
 
 > Product direction is Daniel's call — this README is a starter brief so
 > Carlos (Claude Code) has something concrete to react to. The landing page
-> is live; the app itself is unstarted.
+> is live, and so is the first slice of the family timeline (below); the
+> rest of the app is unstarted.
+
+## Connected: 128bitPlay → timeline
+
+[`timeline.html`](timeline.html) is a working, web-first family timeline. It
+signs in to the user's own Supabase project (the one 128bitPlay's
+**Settings → Account** uses) and lists every event in the family feed,
+newest first, grouped by day, with **Load older**.
+
+- **128bitPlay** posts `book.finished`, `movie.watched`, `episode.watched`
+  and `chapter.read` as you finish things (queued on the phone, sent when
+  signed in).
+- The feed is the `family_events` table plus two RPCs, `log_events` and
+  `get_events`, created by 128bitPlay's setup SQL. Projects set up earlier:
+  run that SQL again; it only adds what's missing.
+- Schema: [`docs/EVENTS.md`](docs/EVENTS.md) and
+  [`src/events.ts`](src/events.ts). Tracker's own `habit.completed` /
+  `streak.*` and the sibling apps' types are listed there as planned; the
+  timeline already shows unknown types, so siblings can start posting
+  whenever.
+
+Open `timeline.html` from GitHub Pages (or any static host) or locally,
+then enter the project URL, anon key, email and password.
 
 ## Concept (starter — Daniel decides)
 

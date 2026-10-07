@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>128bit Timeline</title>
+<meta name="description" content="Everything you finished across the 128bit apps, on one timeline.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0b0b16;
+    --panel:#141428;
+    --line:#26264a;
+    --teal:#2dd4bf;
+    --orange:#ff9f1c;
+    --pink:#ff5d8f;
+    --ink:#f4f1ff;
+    --muted:#9a97b8;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);font-family:'Inter',system-ui,sans-serif;overflow-x:hidden}
+  body::before{
+    content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+    background-image:radial-gradient(rgba(255,159,28,.07) 1px, transparent 1px);
+    background-size:22px 22px;
+  }
+  .wrap{max-width:720px;margin:0 auto;padding:0 16px 60px;position:relative;z-index:1}
+  nav{display:flex;justify-content:space-between;align-items:center;padding:22px 0;gap:12px}
+  .logo{display:flex;align-items:center;gap:12px;font-family:'Press Start 2P',monospace;font-size:13px;color:var(--ink);text-decoration:none}
+  .logo-mark{
+    width:30px;height:30px;background:var(--orange);display:grid;place-items:center;font-size:16px;
+    box-shadow:0 4px 0 #a05e00, 4px 0 0 #a05e00, -4px 0 0 #a05e00, 0 -4px 0 #a05e00;
+  }
+  h1{font-family:'Press Start 2P',monospace;font-size:clamp(16px,4vw,22px);line-height:1.5;margin:18px 0 10px}
+  h1 .o{color:var(--orange)}
+  .sub{color:var(--muted);line-height:1.6;margin-bottom:26px}
+  .panel{background:var(--panel);border:3px solid var(--line);padding:22px;box-shadow:6px 6px 0 #08081a}
+  label{display:block;font-size:13px;color:var(--muted);margin:14px 0 6px}
+  input{
+    width:100%;background:var(--bg);border:3px solid var(--teal);color:var(--ink);
+    padding:12px 14px;font-size:15px;font-family:inherit;outline:none;
+  }
+  input:focus{border-color:var(--orange)}
+  .help{font-size:13px;color:var(--muted);line-height:1.6;margin-top:16px}
+  .help code{color:var(--ink)}
+  button{
+    font-family:'Press Start 2P',monospace;font-size:11px;background:var(--orange);color:#201100;
+    border:3px solid var(--orange);padding:12px 16px;cursor:pointer;margin-top:20px;
+    box-shadow:0 5px 0 #a05e00;
+  }
+  button:active{transform:translateY(4px);box-shadow:0 1px 0 #a05e00}
+  button.ghost{background:transparent;color:var(--muted);border-color:var(--line);box-shadow:none;margin-top:0;font-size:9px;padding:8px 10px}
+  .err{color:var(--pink);margin-top:14px;font-size:14px;line-height:1.5}
+  .who{font-size:13px;color:var(--muted);display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+  .day{font-family:'Press Start 2P',monospace;font-size:10px;color:var(--teal);letter-spacing:1px;margin:30px 0 12px}
+  .ev{display:flex;gap:14px;align-items:flex-start;background:var(--panel);border:3px solid var(--line);padding:14px;margin-bottom:10px}
+  .ev .ico{font-size:22px;width:30px;text-align:center;flex:none}
+  .ev .main{flex:1;min-width:0}
+  .ev .what{font-weight:600;line-height:1.4;overflow-wrap:anywhere}
+  .ev .meta{color:var(--muted);font-size:13px;margin-top:4px}
+  .ev .app{font-family:'Press Start 2P',monospace;font-size:8px;color:var(--orange);flex:none;padding-top:4px}
+  .empty{color:var(--muted);text-align:center;padding:40px 0;line-height:1.7}
+  .more{display:block;margin:20px auto 0}
+  [hidden]{display:none !important}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav>
+    <a class="logo" href="index.html"><span class="logo-mark">📊</span>128bit Tracker</a>
+    <div class="who" id="who" hidden><span id="email"></span><button class="ghost" id="signout">Sign out</button></div>
+  </nav>
+
+  <h1>Your <span class="o">timeline</span></h1>
+  <p class="sub">Everything you finished across the 128bit apps: books, movies, episodes and comic chapters from 128bitPlay so far.</p>
+
+  <form class="panel" id="signin" hidden>
+    <label for="url">Supabase project URL</label>
+    <input id="url" placeholder="https://abcd1234.supabase.co" autocomplete="off" required>
+    <label for="key">Anon public key</label>
+    <input id="key" placeholder="eyJ…" autocomplete="off" required>
+    <label for="mail">Email</label>
+    <input id="mail" type="email" autocomplete="username" required>
+    <label for="pass">Password</label>
+    <input id="pass" type="password" autocomplete="current-password" required>
+    <button type="submit">Sign in</button>
+    <div class="err" id="signin-err" hidden></div>
+    <p class="help">Use the same project and account as 128bitPlay (<code>Settings → Account</code>). Already set up before the timeline existed? Run 128bitPlay's setup SQL again; it adds the feed.</p>
+  </form>
+
+  <div id="feed" hidden></div>
+  <div class="err" id="feed-err" hidden></div>
+  <button class="more" id="more" hidden>Load older</button>
+</div>
+
+<script>
+(function () {
+  var STORE = '128bit.tracker.account';
+  var PAGE = 200;
+
+  // Icons and wording per event type (docs/EVENTS.md). Unknown types still show.
+  var TYPES = {
+    'book.finished':    { ico: '🎧', text: function (d) { return 'Finished ' + d.title + (d.author ? ' by ' + d.author : ''); } },
+    'movie.watched':    { ico: '🎬', text: function (d) { return 'Watched ' + d.title; } },
+    'episode.watched':  { ico: '📺', text: function (d) { return d.show + (d.episode ? ' · ' + d.episode : ''); } },
+    'chapter.read':     { ico: '📖', text: function (d) { return 'Read a chapter of ' + d.comic; } },
+    'habit.completed':  { ico: '✅', text: function (d) { return d.tracker + (d.value != null ? ' · ' + d.value + (d.unit ? ' ' + d.unit : '') : ''); } },
+    'streak.milestone': { ico: '🔥', text: function (d) { return d.days + '-day streak: ' + d.tracker; } },
+    'streak.frozen':    { ico: '🧊', text: function (d) { return 'Streak freeze used: ' + d.tracker; } },
+    'workout.logged':   { ico: '💪', text: function (d) { return d.name + (d.minutes ? ' · ' + d.minutes + ' min' : ''); } },
+    'budget.updated':   { ico: '💰', text: function (d) { return 'Budget updated: ' + d.name; } },
+    'track.played':     { ico: '🎵', text: function (d) { return d.title + (d.artist ? ' · ' + d.artist : ''); } },
+    'matchup.won':      { ico: '🏆', text: function (d) { return 'Won in ' + d.league + (d.score ? ' · ' + d.score : ''); } },
+    'booking.made':     { ico: '✈️', text: function (d) { return 'Booked ' + d.place; } }
+  };
+
+  var $ = function (id) { return document.getElementById(id); };
+  var acct = load();
+  var events = [];
+  var lastDay = null;
+
+  function load() {
+    try { return JSON.parse(localStorage.getItem(STORE)) || null; } catch (e) { return null; }
+  }
+  function save(a) {
+    acct = a;
+    try { a ? localStorage.setItem(STORE, JSON.stringify(a)) : localStorage.removeItem(STORE); } catch (e) {}
+  }
+
+  function auth(url, key, path, body) {
+    return fetch(url + '/auth/v1/' + path, {
+      method: 'POST',
+      headers: { apikey: key, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        if (!r.ok) throw new Error(j.error_description || j.msg || j.message || ('Supabase answered ' + r.status));
+        return j;
+      });
+    });
+  }
+
+  function withSession(a, j) {
+    return {
+      url: a.url, key: a.key,
+      access: j.access_token, refresh: j.refresh_token,
+      expires: j.expires_at || Math.floor(Date.now() / 1000) + (j.expires_in || 3600),
+      email: (j.user && j.user.email) || a.email
+    };
+  }
+
+  function token() {
+    if (acct.expires - 60 > Date.now() / 1000) return Promise.resolve(acct.access);
+    return auth(acct.url, acct.key, 'token?grant_type=refresh_token', { refresh_token: acct.refresh })
+      .then(function (j) { save(withSession(acct, j)); return acct.access; })
+      .catch(function (e) {
+        // Revoked or expired for good: back to the sign-in form.
+        if (/invalid|not found|revoked|expired/i.test(e.message)) { save({ url: acct.url, key: acct.key }); show(); }
+        throw e;
+      });
+  }
+
+  function rpc(fn, args) {
+    return token().then(function (t) {
+      return fetch(acct.url + '/rest/v1/rpc/' + fn, {
+        method: 'POST',
+        headers: { apikey: acct.key, Authorization: 'Bearer ' + t, 'Content-Type': 'application/json' },
+        body: JSON.stringify(args || {})
+      });
+    }).then(function (r) {
+      return r.text().then(function (txt) {
+        var body = txt ? JSON.parse(txt) : null;
+        if (!r.ok) {
+          var msg = (body && body.message) || ('Supabase answered ' + r.status);
+          if (/function .* does not exist|Could not find the function/i.test(msg)) {
+            msg = 'This project has no family feed yet. Run 128bitPlay’s setup SQL again (Settings → Account → Copy setup SQL).';
+          }
+          throw new Error(msg);
+        }
+        return body;
+      });
+    });
+  }
+
+  function dayLabel(t) {
+    var d = new Date(t), today = new Date(), y = new Date();
+    y.setDate(y.getDate() - 1);
+    if (d.toDateString() === today.toDateString()) return 'TODAY';
+    if (d.toDateString() === y.toDateString()) return 'YESTERDAY';
+    return d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: d.getFullYear() === today.getFullYear() ? undefined : 'numeric' }).toUpperCase();
+  }
+
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+
+  function render(batch) {
+    var feed = $('feed');
+    batch.forEach(function (e) {
+      var label = dayLabel(e.at);
+      if (label !== lastDay) { feed.appendChild(el('div', 'day', label)); lastDay = label; }
+      var t = TYPES[e.type];
+      var d = e.data || {};
+      var what;
+      try { what = t ? t.text(d) : e.type + ' ' + JSON.stringify(d); } catch (x) { what = e.type; }
+      var row = el('div', 'ev');
+      row.appendChild(el('div', 'ico', t ? t.ico : '•'));
+      var main = el('div', 'main');
+      main.appendChild(el('div', 'what', what));
+      main.appendChild(el('div', 'meta', new Date(e.at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })));
+      row.appendChild(main);
+      row.appendChild(el('div', 'app', ('128bit' + e.app).toUpperCase()));
+      feed.appendChild(row);
+    });
+    if (!events.length) {
+      feed.appendChild(el('p', 'empty', 'Nothing yet. Finish a book, a movie, an episode or a comic chapter in 128bitPlay while signed in, and it shows up here.'));
+    }
+  }
+
+  function page() {
+    var before = events.length ? events[events.length - 1].at : null;
+    $('more').hidden = true;
+    $('feed-err').hidden = true;
+    return rpc('get_events', { before_ms: before, max_rows: PAGE }).then(function (batch) {
+      events = events.concat(batch);
+      render(batch);
+      $('more').hidden = batch.length < PAGE;
+    }).catch(function (err) {
+      $('feed-err').textContent = err.message;
+      $('feed-err').hidden = false;
+    });
+  }
+
+  function show() {
+    var signedIn = !!(acct && acct.refresh);
+    $('signin').hidden = signedIn;
+    $('who').hidden = !signedIn;
+    $('feed').hidden = !signedIn;
+    if (!signedIn) {
+      if (acct) { $('url').value = acct.url || ''; $('key').value = acct.key || ''; }
+      return;
+    }
+    $('email').textContent = acct.email || '';
+    events = []; lastDay = null; $('feed').textContent = '';
+    page();
+  }
+
+  $('signin').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var url = $('url').value.trim().replace(/\/+$/, '');
+    var key = $('key').value.trim();
+    var err = $('signin-err');
+    err.hidden = true;
+    if (!/^https:\/\/[^/]+$/.test(url)) { err.textContent = 'The Project URL looks like https://abcd1234.supabase.co'; err.hidden = false; return; }
+    auth(url, key, 'token?grant_type=password', { email: $('mail').value.trim(), password: $('pass').value })
+      .then(function (j) { $('pass').value = ''; save(withSession({ url: url, key: key }, j)); show(); })
+      .catch(function (x) { err.textContent = x.message; err.hidden = false; });
+  });
+
+  $('signout').addEventListener('click', function () {
+    var a = acct;
+    token().then(function (t) {
+      return fetch(a.url + '/auth/v1/logout', { method: 'POST', headers: { apikey: a.key, Authorization: 'Bearer ' + t } });
+    }).catch(function () {});
+    // Keep the project so signing back in is just email + password.
+    save({ url: a.url, key: a.key });
+    show();
+  });
+
+  $('more').addEventListener('click', page);
+
+  show();
+})();
+</script>
+</body>
+</html>

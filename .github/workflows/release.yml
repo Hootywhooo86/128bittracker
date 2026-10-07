@@ -1,7 +1,9 @@
 name: Release APK
 
-# Push a tag like v0.2.0 (or run manually with a tag name) to publish a
-# GitHub Release with the APK attached.
+# Publishes a GitHub Release with the APK attached when:
+#  - the "version" in mobile/package.json changes on a pushed branch and no
+#    release v<version> exists yet (bump the version = ship a release), or
+#  - a tag like v0.2.0 is pushed, or it's run manually with a tag name.
 #
 # Signing: add these repo secrets so every release is signed with the same
 # key (required for updates to install over each other):
@@ -15,6 +17,8 @@ name: Release APK
 on:
   push:
     tags: ['v*']
+    branches: ['**']
+    paths: ['mobile/package.json', '.github/workflows/release.yml']
   workflow_dispatch:
     inputs:
       tag:
@@ -32,8 +36,16 @@ jobs:
 
       - name: Resolve version
         id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          if [ -n "${{ github.event.inputs.tag }}" ]; then TAG="${{ github.event.inputs.tag }}"
+          elif [ "${{ github.ref_type }}" = "tag" ]; then TAG="${{ github.ref_name }}"
+          else TAG="v$(node -p "require('./mobile/package.json').version")"; fi
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; nothing to do."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
           VERSION="${TAG#v}"
           IFS=. read -r MA MI PA <<< "${VERSION%%-*}"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
@@ -41,22 +53,26 @@ jobs:
           echo "code=$(( ${MA:-0} * 10000 + ${MI:-0} * 100 + ${PA:-0} ))" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-node@v4
+        if: steps.v.outputs.skip != 'true'
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: mobile/package-lock.json
 
       - uses: actions/setup-java@v4
+        if: steps.v.outputs.skip != 'true'
         with:
           distribution: temurin
           java-version: 21
 
       - name: Tests
+        if: steps.v.outputs.skip != 'true'
         run: |
           npm test
           cd mobile && npm ci && npm test
 
       - name: Decode signing key
+        if: steps.v.outputs.skip != 'true'
         id: sign
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -71,6 +87,7 @@ jobs:
           fi
 
       - name: Build APK
+        if: steps.v.outputs.skip != 'true'
         working-directory: mobile
         env:
           TRACKER_KEYSTORE_FILE: ${{ steps.sign.outputs.file }}
@@ -86,6 +103,7 @@ jobs:
           cp "$OUT" "$GITHUB_WORKSPACE/128bittracker-${{ steps.v.outputs.tag }}.apk"
 
       - uses: softprops/action-gh-release@v2
+        if: steps.v.outputs.skip != 'true'
         with:
           tag_name: ${{ steps.v.outputs.tag }}
           name: 128bit Tracker ${{ steps.v.outputs.tag }}

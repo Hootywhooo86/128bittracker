@@ -26,9 +26,10 @@ The **Release APK** workflow tests, builds and publishes `v<version>`.
 ### Signing (do this once)
 
 Android only installs an update over an existing app if both are signed with
-the **same key**. Until the four secrets below exist, releases are built with
-a throwaway key and marked *pre-release*, so you must uninstall before
-updating (export your data first, or rely on server backup).
+the **same key**. The release workflow refuses to publish until the four
+secrets below exist. (v0.1.0–v0.2.1 were each signed with a throwaway key,
+which is why they can't update each other. Uninstall one of those once,
+then install the first signed release.)
 
 Repo → Settings → Secrets and variables → Actions → New repository secret:
 

@@ -11,7 +11,8 @@ App.addListener('backButton', ({ canGoBack }) => {
   else App.exitApp();
 });
 
-device().then(({ store, sync, reminders }) => {
+device().then(({ store, sync, reminders, updates }) => {
+  updates.startAuto((info) => window.dispatchEvent(new CustomEvent('tracker:update', { detail: info })));
   // Never lose a tap: write the database out as soon as we go to the background.
   App.addListener('pause', () => store.flush());
   // Re-plan reminders on open/resume (today may be done, or a new day).

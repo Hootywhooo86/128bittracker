@@ -78,6 +78,25 @@ const current = () => location.pathname.slice(1) || 'today';
 const refresh = () => go(current(), false);
 // The Android app pulls in other apps' events in the background.
 window.addEventListener('tracker:synced', refresh);
+window.addEventListener('tracker:update', (e) => showUpdate(e.detail));
+
+// ---------- update notice (Android) ----------
+function showUpdate(info, { force = false } = {}) {
+  let dismissed = null;
+  try { dismissed = localStorage.getItem('updates.dismissed'); } catch {}
+  if (!info?.available || (!force && dismissed === info.latest)) return;
+  const el = $('#update-banner');
+  el.innerHTML = `<div class="update" role="status"><span class="px"><span style="font-family:var(--sans)">🆕</span> ${esc(info.name || 'v' + info.latest)} IS OUT</span>
+    <button class="btn teal small" id="up-go">UPDATE</button><button class="btn ghost small" id="up-later">LATER</button></div>`;
+  $('#up-go').addEventListener('click', guard(async () => {
+    await api('POST', '/app/open-update', { url: info.url });
+    toast('DOWNLOADING — OPEN IT TO INSTALL');
+  }));
+  $('#up-later').addEventListener('click', () => {
+    try { localStorage.setItem('updates.dismissed', info.latest); } catch {}
+    el.innerHTML = '';
+  });
+}
 
 // ---------- login ----------
 function showLogin() {
@@ -560,9 +579,23 @@ async function renderSync() {
       <button class="btn teal" id="sy-backup" ${s.server_url && s.has_key ? '' : 'disabled'}>⬆ BACK UP NOW</button>
       <button class="btn ghost" id="sy-restore" ${s.server_url && s.has_key ? '' : 'disabled'}>⬇ RESTORE FROM SERVER</button>
     </div>
+    <h2 class="sec">APP</h2>
+    <p class="muted" style="margin-bottom:12px">Updates come from GitHub Releases and install over this app, keeping your data.</p>
+    <div class="row" style="margin-bottom:12px"><button class="btn ghost" id="up-check">⟳ CHECK FOR UPDATES</button><span class="muted" id="up-version"></span></div>
     <h2 class="sec">FILES</h2>
     <div class="row"><button class="btn ghost" id="export">⬇ EXPORT JSON</button>${importButton()}</div>`;
   bindImport(renderSync);
+  $('#up-check').addEventListener('click', guard(async () => {
+    $('#up-check').disabled = true;
+    try {
+      const u = await api('GET', '/app/update');
+      $('#up-version').textContent = `This is v${u.current}`;
+      if (u.available) showUpdate(u, { force: true });
+      else toast(u.latest ? `UP TO DATE · v${u.current}` : 'NO RELEASES YET');
+    } finally {
+      $('#up-check').disabled = false;
+    }
+  }));
   $('#sy-backup').addEventListener('click', guard(async () => {
     $('#sy-backup').disabled = true;
     await api('POST', '/sync/backup', {});

@@ -9,6 +9,7 @@ import { createEventBus } from '../../src/domain/events.js';
 import { openDevice } from './engine.js';
 import { createSync } from './sync.js';
 import { createReminders } from './reminders.js';
+import { createUpdates } from './updates.js';
 
 export const platform = 'android';
 
@@ -21,6 +22,7 @@ function boot() {
     const ctx = { db: store.db, events: createEventBus(store.db) };
     const sync = createSync(ctx, { scheduleSave: store.scheduleSave });
     const reminders = createReminders(ctx);
+    const updates = createUpdates();
     const r = createRouter();
 
     r.get('/api/v1', null, () => ({ ...metaInfo(), platform, authenticated: true, password_required: false }));
@@ -34,6 +36,8 @@ function boot() {
       reminders.refresh();
       return res;
     });
+    r.get('/api/v1/app/update', null, () => updates.check());
+    r.post('/api/v1/app/open-update', null, async ({ body }) => (await updates.open(body?.url), [204]));
     r.post('/api/v1/share-file', null, async ({ body }) => {
       const name = String(body?.name ?? 'export.json').replace(/[^\w.-]+/g, '_');
       const { uri } = await Filesystem.writeFile({ path: name, data: String(body?.text ?? ''), directory: Directory.Cache, encoding: Encoding.UTF8 });
@@ -51,7 +55,7 @@ function boot() {
       return res;
     };
 
-    return { r, store, sync, reminders };
+    return { r, store, sync, reminders, updates };
   })();
   return booting;
 }
@@ -72,7 +76,7 @@ export async function request(method, path, body) {
     });
     const [status, data] = Array.isArray(out) && typeof out[0] === 'number' ? out : [200, out];
     if (method !== 'GET') {
-      if (!url.pathname.startsWith('/api/v1/sync/') && url.pathname !== '/api/v1/share-file') sync.markDirty();
+      if (!/^\/api\/v1\/(sync|app)\//.test(url.pathname) && url.pathname !== '/api/v1/share-file') sync.markDirty();
       reminders.refresh();
       store.scheduleSave();
     }

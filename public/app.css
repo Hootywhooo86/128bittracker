@@ -171,6 +171,12 @@ table.lib-stats .n{text-align:right;font-variant-numeric:tabular-nums}
 .sessions{font-size:13px;color:var(--muted);max-height:160px;overflow-y:auto;margin-top:6px}
 .sessions div{padding:5px 0;border-bottom:1px solid var(--line)}
 
+/* ---------- update banner ---------- */
+.update{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--panel);border:3px solid var(--teal);
+  box-shadow:5px 5px 0 var(--shadow);padding:12px 14px;margin:8px 0 4px}
+.update .px{font-size:10px;color:var(--teal);line-height:1.6;flex:1 1 100%}
+.update .btn{flex:1}
+
 /* ---------- toast / login ---------- */
 .toast{position:fixed;left:50%;bottom:96px;transform:translateX(-50%);z-index:60;background:var(--teal);color:#032621;
   font-family:var(--px);font-size:9px;padding:12px 16px;box-shadow:0 4px 0 var(--teal-d);max-width:calc(100% - 32px);text-align:center;line-height:1.6}

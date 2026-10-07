@@ -63,6 +63,14 @@ artifacts**).
 to allow installs from that source. Local builds are debug-signed, which is
 fine for testing. Signed releases come from CI (see *Signing* above).
 
+## Updates
+
+The app checks GitHub Releases when it opens (at most every 6 hours) and
+shows a **"vX.Y.Z IS OUT → UPDATE"** banner when a newer signed release
+exists. Tapping it downloads the APK, and Android installs it as an update.
+Data is kept. **Sync → Check for updates** checks on demand. Pre-releases
+are ignored.
+
 ## Reminders
 
 Give any habit a **daily reminder** time (edit the habit). The app schedules

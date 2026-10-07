@@ -137,3 +137,12 @@ test('reminder plan: next 7 days, skips today when done or already past', () => 
   assert.equal(past.length, 6);
   assert.equal(planReminders([{ ...base, remind_at: null, today: { done: false } }], now).length, 0);
 });
+
+test('update check: version comparison', async () => {
+  const { isNewer } = await import('../src/version.js');
+  assert.equal(isNewer('0.2.2', '0.2.1'), true);
+  assert.equal(isNewer('v0.10.0', '0.9.9'), true);
+  assert.equal(isNewer('1.0.0', '1.0.0'), false);
+  assert.equal(isNewer('0.2.0', '0.2.1'), false);
+  assert.equal(isNewer('1.0', '0.9.5'), true);
+});

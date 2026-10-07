@@ -5,51 +5,97 @@ and see your whole life — workouts, money, music, all of it — on one
 timeline. 128bitlife plays the game; Tracker keeps the score.
 Part of the 128bit family.
 
-> Product direction is Daniel's call — this README is a starter brief so
-> Carlos (Claude Code) has something concrete to react to. The landing page
-> is live; the app itself is unstarted.
+> Product direction is Daniel's call. The landing page (`index.html`) is
+> live, and v0.1 of the app now lives in `src/` + `public/`.
 
-## Concept (starter — Daniel decides)
+## Run it
 
-A universal tracker with two jobs:
+Needs Node 22.5+ and nothing else: no `npm install`, no database server.
 
-1. **Log anything.** Habits, water, sleep, moods, meds — two-tap logging,
-   custom trackers, reminders. Streaks with streak-freezes (consistency >
-   perfection), completion rates, trends.
-2. **The family timeline.** Subscribes to the shared 128bit event feed and
-   renders every event from every sibling app on one timeline:
-   `workout.logged` (fit), `budget.updated` (gold), `track.played` (music),
-   `matchup.won` (fantasy), `booking.made` (trip). Tracker doesn't issue
-   quests — that's 128bitlife's job. Tracker keeps the record.
+```bash
+npm start          # http://127.0.0.1:8128
+npm test
+```
 
-## Architecture — log fast, aggregate honestly
+| Env var | Default | |
+|---|---|---|
+| `PORT` / `HOST` | `8128` / `127.0.0.1` | |
+| `TRACKER_DB` | `data/tracker.db` | one SQLite file, gitignored |
+| `TRACKER_PASSWORD` | unset | unset = UI works from this machine only. Set it to log in from your phone / network |
+| `TRACKER_SECRET` | random | signs login cookies; set it so logins survive restarts |
+| `TRACKER_CORS_ORIGINS` | none | comma-separated origins allowed to call the API from a browser |
+
+## What's in v0.1
+
+- **Today**: habit trackers (done / count / duration / 1–5 scale), presets,
+  two-tap logging, undo, a 30-day pixel strip, forgiving streaks with freezes
+  and "never miss twice" nudges.
+- **Library**: track anything you play, watch, read or listen to (games,
+  movies, shows, books, anime, manga, comics, podcasts, music, courses).
+  Status, progress, sessions and time spent, 1–10 ratings, reviews,
+  collections.
+- **Timeline**: one feed for every 128bit app's events.
+- **Stats**: completion rates, streaks, finished this year, time logged,
+  year in pixels.
+- **Connect**: scoped API keys, signed outbound webhooks, JSON export.
+- **128bitplay integration**: games, sessions, completions and achievements
+  sync into the Library on their own. See [`docs/API.md`](docs/API.md).
+
+## Architecture
 
 ```
 src/
-  trackers/
-    custom/      # User-defined trackers: name, type (count/duration/
-                 # check/binary, scale), target, reminder schedule.
-    presets/     # Water, sleep, reading, mood, meds — one-tap enable.
-  streaks/       # Streak engine: chains, freezes, recovery rules,
-                 # "never miss twice" nudges. No shame spirals.
-  timeline/
-    feed/        # Subscribes to the shared 128bit event schema.
-    views/       # Day / week / month / "year in pixels" aggregations.
-  stats/         # Completion rates, best streaks, correlations
-                 # ("you sleep better on workout days").
-  events.ts      # 128bit shared event schema — emit habit.completed,
-                 # streak.milestone, streak.frozen, etc.
-                 # 128bitlife subscribes for quests + XP.
+  server.js            # node:http server, static UI + /api/v1
+  db/index.js          # node:sqlite, migrations, nestable transactions
+  domain/
+    trackers.js        # habit CRUD, presets, logging, freezes
+    streaks.js         # streak engine (pure, unit-tested)
+    library.js         # items, sessions, collections
+    events.js          # 128bit envelope, timeline, signed webhooks
+    stats.js           # overview + year in pixels
+    apikeys.js         # hashed, scoped API keys
+    webhooks.js
+  integrations/
+    index.js           # POST /events: idempotent, atomic per event
+    play.js            # 128bitplay game.* → Library
+    family.js          # any event → trackers that `listen` for it
+  api/                 # router, auth, routes
+public/                # the pixel web app (vanilla JS, no build step)
+docs/API.md            # API reference for 128bitplay & siblings
+test/                  # node:test
 ```
 
 Rules:
 - **Two taps to log.** If logging takes longer, the design failed.
-- **Tracker records; Life rewards.** No quests, no XP logic here — emit
-  events and let 128bitlife do the game layer.
-- **Streaks are forgiving by design.** Freezes, rest days, and recovery —
-  the engine should encourage, not punish.
+- **Tracker records; Life rewards.** No quests, no XP logic here. Emit
+  events and let 128bitlife (or 128bitplay) do the game layer.
+- **Streaks are forgiving by design.** Freezes, rest days, and recovery.
+  The engine should encourage, not punish.
 - **Local-first.** Tracker data is personal; sync is opt-in, never required.
 - Never store raw credentials in the repo.
+
+## Roadmap (proposed — Daniel decides)
+
+Next up:
+1. **Metadata search**: look up a title and fill in cover, year and creator
+   automatically (IGDB for games, TMDB for film/TV, Open Library for books,
+   AniList for anime/manga, iTunes for podcasts).
+2. **Imports**: Goodreads / StoryGraph CSV, Letterboxd, Trakt, MyAnimeList,
+   Steam playtime, so nobody starts from zero.
+3. **Upcoming calendar**: next episodes of shows you're watching, release
+   dates for planned games.
+4. **Body & health trackers**: weight and measurements with charts (or pull
+   from 128bitfit), sleep from phone health APIs.
+5. **PWA + offline**: installable, with a queue so logging works without signal.
+6. **Reminders**: per-tracker push notifications.
+
+Later:
+- Correlations ("you sleep better on workout days"), a Pro candidate
+- Year-in-review card you can share (pixel art, obviously)
+- Shared lists / friends' activity (opt-in), household trackers
+- Media-server integrations (Jellyfin/Plex/Kodi scrobbling), Spotify via 128bitmusic
+- Pixel themes & badge packs (cosmetic IAP)
+- Expo app on the same API
 
 ## Start-here brief for Claude
 

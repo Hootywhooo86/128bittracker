@@ -148,14 +148,16 @@ export function logTracker(ctx, id, input = {}, { source = 'tracker' } = {}) {
   const after = getTracker(ctx, id, today);
   const isDone = after.history.find((h) => h.day === day)?.done ?? false;
   const ref = { tracker_id: id, tracker: tracker.name, icon: tracker.icon };
+  // Backfilled logs belong on their own day in the timeline.
+  const at = day === today ? {} : { occurred_at: `${day}T12:00:00` };
 
-  ctx.events.emit('habit.logged', { ...ref, value, unit: tracker.unit, day }, { title: `${tracker.icon} ${tracker.name} +${value}${tracker.unit ? ' ' + tracker.unit : ''}` });
+  ctx.events.emit('habit.logged', { ...ref, value, unit: tracker.unit, day }, { ...at, title: `${tracker.icon} ${tracker.name} +${value}${tracker.unit ? ' ' + tracker.unit : ''}` });
   if (!wasDone && isDone) {
-    ctx.events.emit('habit.completed', { ...ref, day, streak: after.streak.current }, { title: `${tracker.icon} ${tracker.name} done` });
+    ctx.events.emit('habit.completed', { ...ref, day, streak: after.streak.current }, { ...at, title: `${tracker.icon} ${tracker.name} done` });
   }
   const milestone = milestoneCrossed(before.streak.current, after.streak.current);
   if (milestone) {
-    ctx.events.emit('streak.milestone', { ...ref, days: milestone }, { title: `🔥 ${milestone}-day ${tracker.name} streak` });
+    ctx.events.emit('streak.milestone', { ...ref, days: milestone }, { ...at, title: `🔥 ${milestone}-day ${tracker.name} streak` });
   }
   return { log_id: Number(res.lastInsertRowid), tracker: after, milestone };
 }

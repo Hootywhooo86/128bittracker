@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import initSqlJs from 'sql.js';
 import { adapt } from '../src/adapter.js';
 import { createSync } from '../src/sync.js';
+import { planReminders } from '../src/reminder-plan.js';
 import { migrate } from '../../src/db/schema.js';
 import { createEventBus } from '../../src/domain/events.js';
 import * as trackers from '../../src/domain/trackers.js';
@@ -80,7 +81,7 @@ test('sync pulls 128bitplay events and pushes only the phone\'s own events', asy
 
   // Second run: nothing new either way (derived events stay local).
   const again = await sync.run();
-  assert.deepEqual(again, { pulled: 0, pushed: 0 });
+  assert.deepEqual(again, { pulled: 0, pushed: 0, backed_up: false });
   assert.equal(sync.settings().pulled_total, 2);
 });
 
@@ -91,4 +92,48 @@ test('sync reports server errors without throwing', async () => {
   const r = await sync.run();
   assert.match(r.error, /invalid or revoked API key/);
   assert.match(sync.settings().last_error, /401/);
+});
+
+test('backups: sync uploads a snapshot, restore brings it back on a new phone', async () => {
+  const phoneKey = (await web('POST', '/keys', { name: 'phone-b', scopes: ['sync'] })).key;
+  const ctx = device();
+  const sync = createSync(ctx);
+  sync.configure({ server_url: base, api_key: phoneKey });
+  const t = trackers.createTracker(ctx, { preset: 'reading', remind_at: '21:00' });
+  trackers.logTracker(ctx, t.id, { value: 25 });
+  library.createItem(ctx, { type: 'show', title: 'Severance', rating: 9 });
+  sync.markDirty();
+  const r = await sync.run();
+  assert.equal(r.backed_up, true);
+  assert.ok(sync.settings().last_backup_at);
+
+  // Lost phone: a fresh install restores everything from the server.
+  const fresh = device();
+  const sync2 = createSync(fresh);
+  sync2.configure({ server_url: base, api_key: phoneKey });
+  const res = await sync2.restore();
+  assert.equal(res.restored.trackers, 1);
+  const [restored] = trackers.listTrackers(fresh);
+  assert.equal(restored.remind_at, '21:00');
+  assert.equal(restored.today.total, 25);
+  assert.equal(library.listItems(fresh, { q: 'Severance' })[0].rating, 9);
+  // Restored history is not pushed again.
+  const after = await sync2.run();
+  assert.equal(after.pushed, 0);
+});
+
+test('reminder plan: next 7 days, skips today when done or already past', () => {
+  const now = new Date(2026, 9, 7, 10, 0);
+  const base = { id: 3, icon: '💧', name: 'Water', archived: false, streak: { current: 4 } };
+  const notDone = planReminders([{ ...base, remind_at: '20:00', today: { done: false } }], now);
+  assert.equal(notDone.length, 7);
+  assert.equal(notDone[0].id, 30);
+  assert.equal(notDone[0].at.getHours(), 20);
+  assert.match(notDone[0].body, /4-day streak/);
+  const done = planReminders([{ ...base, remind_at: '20:00', today: { done: true } }], now);
+  assert.equal(done.length, 6);
+  assert.equal(done[0].at.getDate(), 8);
+  const past = planReminders([{ ...base, remind_at: '08:00', today: { done: false } }], now);
+  assert.equal(past.length, 6);
+  assert.equal(planReminders([{ ...base, remind_at: null, today: { done: false } }], now).length, 0);
 });

@@ -84,6 +84,21 @@ for p in RES.glob("drawable*/splash.png"):
     w, h = Image.open(p).size
     splash(w, h).save(p)
 
+# Notification icon: Android wants a white silhouette on transparent (24dp).
+def silhouette(size):
+    img = Image.new("RGBA", (16, 16), (0, 0, 0, 0))
+    for y, row in enumerate(ART):
+        for x, ch in enumerate(row):
+            if ch in COLORS:
+                img.putpixel((x, y), (255, 255, 255, 255))
+    return img.resize((size, size), Image.NEAREST)
+
+
+for d, m in DENS.items():
+    out = RES / f"drawable-{d}"
+    out.mkdir(exist_ok=True)
+    silhouette(int(24 * m)).save(out / "ic_stat_tracker.png")
+
 (RES / "values/ic_launcher_background.xml").write_text(
     '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <color name="ic_launcher_background">#0B0B16</color>\n</resources>\n'
 )

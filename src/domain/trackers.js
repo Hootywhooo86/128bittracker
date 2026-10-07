@@ -40,6 +40,11 @@ function validate(input, partial = false) {
     if (!/^#[0-9a-fA-F]{6}$/.test(input.color)) throw new HttpError(400, 'color must be #rrggbb');
     out.color = input.color;
   }
+  if (input.remind_at !== undefined) {
+    const r = input.remind_at == null || input.remind_at === '' ? null : String(input.remind_at);
+    if (r != null && !/^([01]\d|2[0-3]):[0-5]\d$/.test(r)) throw new HttpError(400, 'remind_at must be HH:MM (24h)');
+    out.remind_at = r;
+  }
   if (input.unit !== undefined) out.unit = input.unit == null ? null : String(input.unit).slice(0, 20);
   if (input.archived !== undefined) out.archived = input.archived ? 1 : 0;
   if (input.listens !== undefined) {
@@ -55,10 +60,10 @@ function validate(input, partial = false) {
 export function createTracker(ctx, input) {
   const base = input.preset ? PRESETS[input.preset] : null;
   if (input.preset && !base) throw new HttpError(400, `unknown preset "${input.preset}"`);
-  const t = { icon: '⭐', color: '#2dd4bf', target: 1, unit: null, listens: null, ...base, ...validate({ ...base, ...input }) };
+  const t = { icon: '⭐', color: '#2dd4bf', target: 1, unit: null, listens: null, remind_at: null, ...base, ...validate({ ...base, ...input }) };
   const res = ctx.db
-    .prepare('INSERT INTO trackers (name, icon, color, kind, target, unit, preset, listens, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(t.name, t.icon, t.color, t.kind, t.target, t.unit, input.preset ?? null, t.listens, new Date().toISOString());
+    .prepare('INSERT INTO trackers (name, icon, color, kind, target, unit, preset, listens, remind_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(t.name, t.icon, t.color, t.kind, t.target, t.unit, input.preset ?? null, t.listens, t.remind_at, new Date().toISOString());
   return getTracker(ctx, Number(res.lastInsertRowid));
 }
 

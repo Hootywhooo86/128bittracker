@@ -101,12 +101,13 @@ trackers, otherwise `data.minutes ?? data.value ?? 1`.
 | GET | `/stats` | habit + library overview |
 | GET | `/stats/year/:year` | year in pixels |
 | GET | `/export` | everything, as JSON |
+| POST | `/import` | *(scope `write`)* replace all data with an export. Settings and keys are kept |
 
 ## Writing (scope `write`)
 
 | Method | Path | Body |
 |---|---|---|
-| POST | `/trackers` | `{ preset }` or `{ name, kind: check\|count\|duration\|scale, target, unit, icon, color, listens }` |
+| POST | `/trackers` | `{ preset }` or `{ name, kind: check\|count\|duration\|scale, target, unit, icon, color, listens, remind_at: "HH:MM" }` |
 | PATCH / DELETE | `/trackers/:id` | |
 | POST | `/trackers/:id/log` | `{ value?, day?, note? }`. Empty body = one tap |
 | POST | `/trackers/:id/undo` | removes the last log for `day` (default today) |
@@ -146,4 +147,7 @@ The Android app uses these endpoints. Other apps don't need them.
 | Method | Path | |
 |---|---|---|
 | GET | `/sync/inbox?cursor=0&limit=200` | events from other sources, in arrival order → `{ events, cursor, more }`. Pass `cursor` back next time |
+| PUT | `/sync/backup` | upload a full export. The server keeps the latest 10 per key |
+| GET | `/sync/backups` | list this device's backups (no data) |
+| GET | `/sync/backups/latest` · `/sync/backups/:id` | the export, ready for `/import` |
 | POST | `/sync/outbox` | array of the phone's own events (`source: "128bittracker"`). Stored and sent to webhooks, idempotent by `id` |

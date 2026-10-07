@@ -12,8 +12,11 @@ Part of the 128bit family.
 
 The phone app lives in [`mobile/`](mobile/README.md). It is the same Tracker
 running fully offline on the device, and it syncs with a Tracker server so
-128bitplay and the other 128bit apps can reach it. `cd mobile && npm ci && npm
-run apk` builds it, and GitHub Actions builds an APK on every push.
+128bitplay and the other 128bit apps can reach it, and so your data is backed up.
+
+**Download:** grab the latest `.apk` from
+[Releases](https://github.com/Hootywhooo86/128bittracker/releases). Bumping
+`"version"` in `mobile/package.json` publishes a new release automatically.
 
 ## Run the server
 
@@ -84,6 +87,9 @@ Rules:
 
 ## Roadmap (proposed — Daniel decides)
 
+Done since v0.1: daily reminders on Android, automatic server backups with
+one-tap restore, JSON import.
+
 Next up:
 1. **Metadata search**: look up a title and fill in cover, year and creator
    automatically (IGDB for games, TMDB for film/TV, Open Library for books,
@@ -94,8 +100,9 @@ Next up:
    dates for planned games.
 4. **Body & health trackers**: weight and measurements with charts (or pull
    from 128bitfit), sleep from phone health APIs.
-5. **Reminders**: per-tracker notifications on Android.
-6. **Release signing + Play Store listing.**
+5. **Native SQLite on the phone** (swap `mobile/src/adapter.js`) once
+   histories get large.
+6. **Play Store listing.**
 
 Later:
 - Correlations ("you sleep better on workout days"), a Pro candidate

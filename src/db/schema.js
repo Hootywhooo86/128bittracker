@@ -120,6 +120,20 @@ export const MIGRATIONS = [
     value TEXT
   );
   `,
+  // 3 — daily reminders + server-side device backups
+  `
+  ALTER TABLE trackers ADD COLUMN remind_at TEXT;
+
+  CREATE TABLE backups (
+    id          INTEGER PRIMARY KEY,
+    device      TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    exported_at TEXT,
+    size        INTEGER NOT NULL,
+    data        TEXT NOT NULL
+  );
+  CREATE INDEX backups_device ON backups(device, id DESC);
+  `,
 ];
 
 export function migrate(db) {

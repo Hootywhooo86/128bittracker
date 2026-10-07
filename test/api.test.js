@@ -171,3 +171,31 @@ test('device sync: inbox returns other apps\' events, outbox fans out to webhook
   // sync keys can't read the library
   assert.equal((await call('GET', '/api/v1/items', undefined, ph)).status, 403);
 });
+
+test('export → import round-trips everything', async () => {
+  const { body: before } = await call('GET', '/api/v1/export');
+  const counts = (e) => Object.fromEntries(['trackers', 'logs', 'items', 'sessions', 'events'].map((k) => [k, e[k].length]));
+  await call('POST', '/api/v1/trackers', { name: 'Temp', remind_at: '08:30' });
+  const r = await call('POST', '/api/v1/import', before);
+  assert.equal(r.status, 200);
+  const { body: after } = await call('GET', '/api/v1/export');
+  assert.deepEqual(counts(after), counts(before));
+  assert.equal((await call('POST', '/api/v1/import', { format: 'nope' })).status, 400);
+  assert.equal((await call('POST', '/api/v1/trackers', { name: 'Bad', remind_at: '25:00' })).status, 400);
+});
+
+test('device backups: upload, keep 10, fetch latest', async () => {
+  const { body: phone } = await call('POST', '/api/v1/keys', { name: 'backup-phone', scopes: ['sync'] });
+  const ph = { authorization: `Bearer ${phone.key}` };
+  assert.equal((await call('GET', '/api/v1/sync/backups/latest', undefined, ph)).status, 404);
+  const { body: snap } = await call('GET', '/api/v1/export');
+  for (let i = 0; i < 12; i++) {
+    const r = await call('PUT', '/api/v1/sync/backup', { ...snap, exported_at: `2026-01-${String(i + 1).padStart(2, '0')}T00:00:00Z` }, ph);
+    assert.equal(r.status, 201);
+  }
+  const { body: list } = await call('GET', '/api/v1/sync/backups', undefined, ph);
+  assert.equal(list.length, 10);
+  const { body: latest } = await call('GET', '/api/v1/sync/backups/latest', undefined, ph);
+  assert.equal(latest.exported_at, '2026-01-12T00:00:00Z');
+  assert.equal((await call('PUT', '/api/v1/sync/backup', { hello: 1 }, ph)).status, 400);
+});

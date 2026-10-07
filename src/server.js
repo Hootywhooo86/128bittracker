@@ -12,7 +12,7 @@ import { HttpError } from './api/errors.js';
 
 const PUBLIC_DIR = fileURLToPath(new URL('../public/', import.meta.url));
 const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css', '.js': 'text/javascript', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.webmanifest': 'application/manifest+json' };
-const MAX_BODY = 1024 * 1024;
+const MAX_BODY = 32 * 1024 * 1024; // full imports/backups can be large
 
 export function createApp({ db = openDb(), fetchImpl, password, secret, corsOrigins = (process.env.TRACKER_CORS_ORIGINS ?? '').split(',').filter(Boolean) } = {}) {
   const notify = createDispatcher(db, { fetchImpl });

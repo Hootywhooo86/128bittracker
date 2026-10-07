@@ -11,8 +11,16 @@ App.addListener('backButton', ({ canGoBack }) => {
   else App.exitApp();
 });
 
-device().then(({ store, sync }) => {
+device().then(({ store, sync, reminders }) => {
   // Never lose a tap: write the database out as soon as we go to the background.
   App.addListener('pause', () => store.flush());
-  sync.startAuto({ onSynced: () => window.dispatchEvent(new CustomEvent('tracker:synced')) });
+  // Re-plan reminders on open/resume (today may be done, or a new day).
+  reminders.refresh();
+  App.addListener('resume', () => reminders.refresh());
+  sync.startAuto({
+    onSynced: () => {
+      reminders.refresh();
+      window.dispatchEvent(new CustomEvent('tracker:synced'));
+    },
+  });
 });

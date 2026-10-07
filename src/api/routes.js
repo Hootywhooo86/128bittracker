@@ -5,6 +5,7 @@ import { addCoreRoutes, metaInfo } from './core-routes.js';
 import * as keys from '../domain/apikeys.js';
 import * as hooks from '../domain/webhooks.js';
 import { normalizeEnvelope } from '../domain/events.js';
+import { EXPORT_FORMAT } from '../domain/backup.js';
 import { ingest, ingestBatch } from '../integrations/index.js';
 
 export { API_VERSION } from './core-routes.js';
@@ -82,6 +83,29 @@ export function buildRoutes(ctx, auth) {
         return { id: raw?.id ?? null, status: 'error', error: err.message };
       }
     });
+  });
+
+  // Backups: the phone uploads a full export; the server keeps the latest 10 per device.
+  const deviceOf = (principal) => (principal.kind === 'key' ? principal.key.name : 'owner');
+  r.put('/api/v1/sync/backup', 'sync', ({ body, principal }) => {
+    if (body?.format !== EXPORT_FORMAT) throw new HttpError(400, 'send a 128bit Tracker export');
+    const device = deviceOf(principal);
+    const data = JSON.stringify(body);
+    const res = db
+      .prepare('INSERT INTO backups (device, created_at, exported_at, size, data) VALUES (?, ?, ?, ?, ?)')
+      .run(device, new Date().toISOString(), body.exported_at ?? null, data.length, data);
+    db.prepare('DELETE FROM backups WHERE device = ? AND id NOT IN (SELECT id FROM backups WHERE device = ? ORDER BY id DESC LIMIT 10)').run(device, device);
+    return [201, db.prepare('SELECT id, device, created_at, exported_at, size FROM backups WHERE id = ?').get(Number(res.lastInsertRowid))];
+  });
+  r.get('/api/v1/sync/backups', 'sync', ({ principal }) =>
+    db.prepare('SELECT id, device, created_at, exported_at, size FROM backups WHERE device = ? ORDER BY id DESC').all(deviceOf(principal)),
+  );
+  r.get('/api/v1/sync/backups/:id', 'sync', ({ params, principal }) => {
+    const row = params.id === 'latest'
+      ? db.prepare('SELECT data FROM backups WHERE device = ? ORDER BY id DESC LIMIT 1').get(deviceOf(principal))
+      : db.prepare('SELECT data FROM backups WHERE device = ? AND id = ?').get(deviceOf(principal), id(params));
+    if (!row) throw new HttpError(404, 'no backup yet');
+    return JSON.parse(row.data);
   });
 
   // --- admin: keys + webhooks --------------------------------------------------------

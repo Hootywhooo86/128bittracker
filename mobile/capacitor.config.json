@@ -9,6 +9,10 @@
   "plugins": {
     "CapacitorHttp": {
       "enabled": true
+    },
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_tracker",
+      "iconColor": "#FF9F1C"
     }
   }
 }

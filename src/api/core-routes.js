@@ -5,6 +5,7 @@ import * as trackers from '../domain/trackers.js';
 import * as library from '../domain/library.js';
 import * as stats from '../domain/stats.js';
 import { listEvents } from '../domain/events.js';
+import { exportAll, importAll } from '../domain/backup.js';
 
 export const API_VERSION = '1';
 
@@ -76,21 +77,5 @@ export function addCoreRoutes(r, ctx) {
     return stats.yearInPixels(ctx, y);
   });
   r.get('/api/v1/export', 'read', () => exportAll(db));
-}
-
-function exportAll(db) {
-  const all = (t) => db.prepare(`SELECT * FROM ${t}`).all();
-  return {
-    format: '128bittracker-export',
-    version: 1,
-    exported_at: new Date().toISOString(),
-    trackers: all('trackers'),
-    logs: all('logs'),
-    freezes: all('freezes'),
-    items: all('items').map((i) => ({ ...i, meta: JSON.parse(i.meta) })),
-    sessions: all('sessions'),
-    collections: all('collections'),
-    collection_items: all('collection_items'),
-    events: all('events').map(({ payload, ...e }) => ({ ...e, data: JSON.parse(payload) })),
-  };
+  r.post('/api/v1/import', 'write', ({ body }) => importAll(db, body));
 }

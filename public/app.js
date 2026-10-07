@@ -156,7 +156,7 @@ function trackerCard(t) {
     <div class="card-head">
       <div class="card-ico" aria-hidden="true">${esc(t.icon)}</div>
       <div style="min-width:0"><div class="card-title">${esc(t.name)}</div>
-        <div class="card-meta">${t.completion_30d}% · 30 days${t.listens.length ? ` · auto: ${esc(t.listens.join(', '))}` : ''}</div></div>
+        <div class="card-meta">${t.completion_30d}% · 30 days${t.remind_at ? ` · 🔔 ${esc(t.remind_at)}` : ''}${t.listens.length ? ` · auto: ${esc(t.listens.join(', '))}` : ''}</div></div>
       <div class="streak ${s.current ? '' : 'cold'}" title="Best: ${s.best}">🔥${s.current}</div>
     </div>
     ${meter}
@@ -220,12 +220,14 @@ function trackerForm(t) {
       <div class="field"><label for="tf-unit">UNIT</label><input class="input" id="tf-unit" name="unit" maxlength="20" value="${esc(t.unit ?? '')}" placeholder="min, glasses…"></div>
       <div class="field"><label for="tf-color">COLOR</label><input class="input" id="tf-color" name="color" type="color" value="${esc(t.color ?? '#2dd4bf')}" style="height:48px;padding:4px"></div>
     </div>
+    <div class="field"><label for="tf-remind">DAILY REMINDER (OPTIONAL)</label><input class="input" id="tf-remind" name="remind_at" type="time" value="${esc(t.remind_at ?? '')}">
+      ${platform === 'web' ? '<span class="muted" style="font-size:12px">Reminders ring on the Android app.</span>' : ''}</div>
     <div class="field"><label for="tf-listens">AUTO-LOG FROM 128BIT EVENTS (OPTIONAL)</label><input class="input" id="tf-listens" name="listens" value="${esc((t.listens ?? []).join(', '))}" placeholder="workout.logged, game.session"></div>
     <button class="btn teal">${editing ? 'SAVE' : 'CREATE'}</button>
   </form>`;
 }
 function trackerPayload(f) {
-  return { name: f.name, icon: f.icon, kind: f.kind, target: Number(f.target) || 1, unit: f.unit || null, color: f.color, listens: f.listens ?? '' };
+  return { name: f.name, icon: f.icon, kind: f.kind, target: Number(f.target) || 1, unit: f.unit || null, color: f.color, listens: f.listens ?? '', remind_at: f.remind_at || null };
 }
 
 // ---------- LIBRARY ----------
@@ -475,7 +477,8 @@ async function renderConnect() {
 
     <h2 class="sec">YOUR DATA</h2>
     <p class="muted" style="margin-bottom:12px">Local-first: it all lives in one SQLite file on your machine.</p>
-    <a class="btn ghost" href="#" id="export">⬇ EXPORT JSON</a>`;
+    <div class="row"><a class="btn ghost" href="#" id="export">⬇ EXPORT JSON</a>${importButton()}</div>`;
+  bindImport(renderConnect);
 
   $('#key-form').addEventListener('submit', guard(async (e) => {
     e.preventDefault();
@@ -512,6 +515,23 @@ async function renderConnect() {
   }));
 }
 
+// ---------- import ----------
+function importButton() {
+  return `<label class="btn ghost" style="cursor:pointer">⬆ IMPORT JSON<input type="file" accept="application/json,.json" id="import-file" hidden></label>`;
+}
+function bindImport(after) {
+  $('#import-file')?.addEventListener('change', guard(async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    const data = JSON.parse(await file.text());
+    if (!confirm(`Replace everything here with this export${data.exported_at ? ' from ' + new Date(data.exported_at).toLocaleString() : ''}?`)) return;
+    const r = await api('POST', '/import', data);
+    toast(`RESTORED ${r.restored.trackers} TRACKERS · ${r.restored.items} ITEMS`);
+    await after();
+  }));
+}
+
 // ---------- SYNC (Android) ----------
 async function renderSync() {
   const s = await api('GET', '/sync/settings');
@@ -534,9 +554,27 @@ async function renderSync() {
     </div>
     ${s.last_error ? `<p class="nudge" style="margin-top:12px">Last error: ${esc(s.last_error)}</p>` : ''}
     <div class="row" style="margin-top:16px"><button class="btn" id="sy-run" ${s.server_url && s.has_key ? '' : 'disabled'}>⟳ SYNC NOW</button></div>
-    <h2 class="sec">YOUR DATA</h2>
-    <p class="muted" style="margin-bottom:12px">Back up everything as one JSON file.</p>
-    <button class="btn ghost" id="export">⬇ EXPORT JSON</button>`;
+    <h2 class="sec">BACKUP</h2>
+    <p class="muted" style="margin-bottom:12px;line-height:1.6">${s.server_url ? `The server keeps your last 10 backups, made automatically whenever something changes. Last backup: <b style="color:var(--ink)">${when(s.last_backup_at)}</b>.` : 'Link a server to get automatic backups.'}</p>
+    <div class="row" style="margin-bottom:12px">
+      <button class="btn teal" id="sy-backup" ${s.server_url && s.has_key ? '' : 'disabled'}>⬆ BACK UP NOW</button>
+      <button class="btn ghost" id="sy-restore" ${s.server_url && s.has_key ? '' : 'disabled'}>⬇ RESTORE FROM SERVER</button>
+    </div>
+    <h2 class="sec">FILES</h2>
+    <div class="row"><button class="btn ghost" id="export">⬇ EXPORT JSON</button>${importButton()}</div>`;
+  bindImport(renderSync);
+  $('#sy-backup').addEventListener('click', guard(async () => {
+    $('#sy-backup').disabled = true;
+    await api('POST', '/sync/backup', {});
+    toast('BACKED UP');
+    await renderSync();
+  }));
+  $('#sy-restore').addEventListener('click', guard(async () => {
+    if (!confirm('Replace everything on this phone with the latest server backup?')) return;
+    const r = await api('POST', '/sync/restore', {});
+    toast(`RESTORED ${r.restored.trackers} TRACKERS · ${r.restored.items} ITEMS`);
+    await renderSync();
+  }));
   $('#sync-form').addEventListener('submit', guard(async (e) => {
     e.preventDefault();
     const f = formData(e.target);
@@ -552,7 +590,7 @@ async function renderSync() {
   $('#sy-run').addEventListener('click', guard(async () => {
     $('#sy-run').disabled = true;
     const r = await api('POST', '/sync/run', {});
-    toast(r.error ? `SYNC FAILED: ${r.error}` : `SYNCED · ${r.pulled} IN · ${r.pushed} OUT`, !!r.error);
+    toast(r.error ? `SYNC FAILED: ${r.error}` : `SYNCED · ${r.pulled} IN · ${r.pushed} OUT${r.backed_up ? ' · BACKED UP' : ''}`, !!r.error);
     await renderSync();
   }));
   $('#export').addEventListener('click', guard(async () => {

@@ -17,7 +17,33 @@ mobile/
   test/              # runs the shared core on sql.js + sync against a real server
 ```
 
-## Build the APK
+## Get the APK
+
+Download it from [Releases](https://github.com/Hootywhooo86/128bittracker/releases).
+To ship a new release, bump `"version"` in `mobile/package.json` and push.
+The **Release APK** workflow tests, builds and publishes `v<version>`.
+
+### Signing (do this once)
+
+Android only installs an update over an existing app if both are signed with
+the **same key**. Until the four secrets below exist, releases are built with
+a throwaway key and marked *pre-release*, so you must uninstall before
+updating (export your data first, or rely on server backup).
+
+Repo → Settings → Secrets and variables → Actions → New repository secret:
+
+| Secret | Value |
+|---|---|
+| `ANDROID_KEYSTORE_BASE64` | `base64 -w0 128bittracker-release.jks` |
+| `ANDROID_KEYSTORE_PASSWORD` | keystore password |
+| `ANDROID_KEY_ALIAS` | `tracker` |
+| `ANDROID_KEY_PASSWORD` | key password |
+
+Keep the `.jks` file and its passwords somewhere safe, like a password
+manager. If you lose them you can't update the app on anyone's phone, and the
+Play Store needs the same key forever. Never commit them.
+
+## Build the APK yourself
 
 Needs Node 22, JDK 21 and the Android SDK (`ANDROID_HOME`, platform 35).
 
@@ -33,10 +59,22 @@ Every push also builds the APK on GitHub Actions (**Actions → Android APK →
 artifacts**).
 
 **Installing:** copy the `.apk` to the phone and open it. Android will ask you
-to allow installs from that source. Debug builds are signed with a throwaway
-debug key, which is fine for testing. For the Play Store (or so updates install
-over each other across machines) we'll make a release keystore. Keep it out of
-the repo.
+to allow installs from that source. Local builds are debug-signed, which is
+fine for testing. Signed releases come from CI (see *Signing* above).
+
+## Reminders
+
+Give any habit a **daily reminder** time (edit the habit). The app schedules
+local notifications for the next 7 days. It skips today once the habit is
+done, and re-plans whenever you open the app or log something. Android asks
+for notification permission the first time.
+
+## Backups
+
+With a server linked, every sync that changed something also uploads a full
+snapshot. The server keeps the last 10 per phone. **Sync → Restore from
+server** rebuilds a new or reset phone from the newest one. **Export / Import
+JSON** works without a server.
 
 ## Connecting to 128bitplay (sync)
 

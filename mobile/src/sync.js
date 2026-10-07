@@ -6,11 +6,14 @@
 //          applied here through the same ingest code the server uses
 //   push — this phone's own events (habit.completed, streak.milestone, …) go
 //          to the server, which fans them out to webhooks (e.g. 128bitplay)
+//   backup — after a sync where anything changed, a full export is stored on
+//          the server (latest 10 kept) so a lost phone loses nothing
 //
 // Events derived while applying pulled events (e.g. "item.added" for a new
 // 128bitplay game) are not pushed: the server derives its own copies.
 import { ingest } from '../../src/integrations/index.js';
 import { HttpError } from '../../src/api/errors.js';
+import { exportAll, importAll } from '../../src/domain/backup.js';
 
 const AUTO_EVERY_MS = 5 * 60 * 1000;
 
@@ -29,7 +32,36 @@ export function createSync(ctx, { scheduleSave, fetchImpl = (...a) => fetch(...a
       last_error: get('sync.last_error'),
       pulled_total: num('sync.pulled_total'),
       pushed_total: num('sync.pushed_total'),
+      last_backup_at: get('backup.last_at'),
     };
+  }
+
+  /** Something changed locally since the last backup. */
+  const markDirty = () => set('backup.dirty', '1');
+
+  async function backupNow() {
+    const snap = exportAll(db);
+    await call('PUT', '/sync/backup', snap);
+    set('backup.dirty', null);
+    set('backup.last_at', snap.exported_at);
+    scheduleSave?.();
+    return { backed_up: true, at: snap.exported_at };
+  }
+
+  /** Replace this phone's data with a server backup (default: the newest). */
+  async function restore(id = 'latest') {
+    const data = await call('GET', `/sync/backups/${id}`);
+    const res = importAll(db, data);
+    afterRestore();
+    return res;
+  }
+
+  /** After any restore: don't re-push restored history to the server. */
+  function afterRestore() {
+    set('sync.outbox_seq', maxOwnSeq());
+    set('sync.skip', '[]');
+    set('backup.dirty', null);
+    scheduleSave?.();
   }
 
   function configure({ server_url, api_key } = {}) {
@@ -55,6 +87,7 @@ export function createSync(ctx, { scheduleSave, fetchImpl = (...a) => fetch(...a
   }
 
   async function call(method, path, body) {
+    if (!get('sync.server_url') || !get('sync.api_key')) throw new HttpError(400, 'link a server first');
     const res = await fetchImpl(get('sync.server_url') + '/api/v1' + path, {
       method,
       headers: { authorization: `Bearer ${get('sync.api_key')}`, ...(body ? { 'content-type': 'application/json' } : {}) },
@@ -124,11 +157,13 @@ export function createSync(ctx, { scheduleSave, fetchImpl = (...a) => fetch(...a
       try {
         const pushed = await push();
         const pulled = await pull();
-        set('sync.last_sync_at', new Date().toISOString());
-        set('sync.last_error', null);
         set('sync.pulled_total', num('sync.pulled_total') + pulled);
         set('sync.pushed_total', num('sync.pushed_total') + pushed);
-        return { pulled, pushed };
+        // Keep a server copy of everything whenever something changed.
+        const backed_up = pulled > 0 || get('backup.dirty') ? (await backupNow()).backed_up : false;
+        set('sync.last_sync_at', new Date().toISOString());
+        set('sync.last_error', null);
+        return { pulled, pushed, backed_up };
       } catch (err) {
         set('sync.last_error', err.message);
         return { pulled: 0, pushed: 0, error: err.message };
@@ -152,5 +187,5 @@ export function createSync(ctx, { scheduleSave, fetchImpl = (...a) => fetch(...a
     document.addEventListener('visibilitychange', tick);
   }
 
-  return { settings, configure, run, startAuto };
+  return { settings, configure, run, startAuto, markDirty, backupNow, restore, afterRestore };
 }

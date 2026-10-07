@@ -4,7 +4,8 @@
   "webDir": "www",
   "backgroundColor": "#0b0b16",
   "android": {
-    "allowMixedContent": false
+    "allowMixedContent": false,
+    "adjustMarginsForEdgeToEdge": "auto"
   },
   "plugins": {
     "CapacitorHttp": {

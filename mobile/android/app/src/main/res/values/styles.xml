@@ -13,6 +13,9 @@
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>
+        <!-- Android 15 draws behind the system bars; the app is inset (see
+             adjustMarginsForEdgeToEdge), so this colour shows behind them. -->
+        <item name="android:windowBackground">@color/tracker_bg</item>
         <item name="android:statusBarColor">#0B0B16</item>
         <item name="android:navigationBarColor">#0B0B16</item>
         <item name="android:windowLightStatusBar">false</item>

@@ -20,6 +20,9 @@ running fully offline on the device, and it syncs with a Tracker server so
 
 ## Run the server
 
+To put it online for 128bitplay and phone sync, see
+[docs/SERVER.md](docs/SERVER.md) (Docker, Railway, Fly.io, VPS or home).
+
 Needs Node 22.5+ and nothing else: no `npm install`, no database server.
 
 ```bash

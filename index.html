@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>128bit Tracker — Track anything. Streak everything.</title>
+<meta name="description" content="128bit Tracker is the 128bit family's record-keeper: log anything, build streaks, and see your whole life on one timeline. Coming soon.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0b0b16;
+    --panel:#141428;
+    --teal:#2dd4bf;
+    --orange:#ff9f1c;
+    --pink:#ff5d8f;
+    --ink:#f4f1ff;
+    --muted:#9a97b8;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:'Inter',system-ui,sans-serif;
+    overflow-x:hidden;
+  }
+  /* subtle pixel-dot grid */
+  body::before{
+    content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+    background-image:radial-gradient(rgba(255,159,28,.07) 1px, transparent 1px);
+    background-size:22px 22px;
+  }
+  .wrap{max-width:960px;margin:0 auto;padding:0 20px;position:relative;z-index:1}
+  .pixel{font-family:'Press Start 2P',monospace}
+  /* ---------- nav ---------- */
+  nav{display:flex;justify-content:space-between;align-items:center;padding:22px 0}
+  .logo{display:flex;align-items:center;gap:12px;font-family:'Press Start 2P',monospace;font-size:15px}
+  .logo-mark{
+    width:34px;height:34px;background:var(--orange);display:grid;place-items:center;font-size:18px;
+    box-shadow:0 4px 0 #a05e00, 4px 0 0 #a05e00, -4px 0 0 #a05e00, 0 -4px 0 #a05e00;
+    image-rendering:pixelated;
+  }
+  .badge{
+    font-family:'Press Start 2P',monospace;font-size:9px;color:var(--bg);background:var(--teal);
+    padding:8px 10px;letter-spacing:1px;
+    box-shadow:0 4px 0 #0e7c6f;
+  }
+  /* ---------- hero ---------- */
+  header{text-align:center;padding:70px 0 50px}
+  .eyebrow{font-family:'Press Start 2P',monospace;font-size:10px;color:var(--teal);letter-spacing:2px;margin-bottom:26px}
+  h1{
+    font-family:'Press Start 2P',monospace;
+    font-size:clamp(26px,6vw,54px);line-height:1.35;margin-bottom:26px;
+    text-shadow:0 4px 0 #1a1a33, 4px 0 0 #1a1a33;
+  }
+  h1 .t{color:var(--teal)} h1 .o{color:var(--orange)}
+  .sub{color:var(--muted);font-size:18px;max-width:600px;margin:0 auto 36px;line-height:1.6}
+  /* stamp */
+  .stamp{
+    display:inline-block;transform:rotate(-6deg);margin-bottom:34px;
+    border:3px dashed var(--orange);color:var(--orange);
+    font-family:'Press Start 2P',monospace;font-size:10px;padding:12px 16px;letter-spacing:1px;
+    background:rgba(255,159,28,.06);
+  }
+  /* waitlist form */
+  form.waitlist{display:flex;gap:0;max-width:480px;margin:0 auto;flex-wrap:wrap;justify-content:center}
+  form.waitlist input{
+    flex:1 1 240px;background:var(--panel);border:3px solid var(--teal);color:var(--ink);
+    padding:14px 16px;font-size:15px;font-family:'Inter',sans-serif;outline:none;min-width:0;
+  }
+  form.waitlist input:focus{border-color:var(--orange)}
+  form.waitlist button{
+    font-family:'Press Start 2P',monospace;font-size:11px;background:var(--orange);color:#201100;
+    border:3px solid var(--orange);padding:14px 20px;cursor:pointer;
+    box-shadow:0 5px 0 #a05e00;transition:transform .08s, box-shadow .08s;
+  }
+  form.waitlist button:hover{transform:translateY(2px);box-shadow:0 3px 0 #a05e00}
+  form.waitlist button:active{transform:translateY(5px);box-shadow:0 0 0 #a05e00}
+  .form-note{margin-top:14px;font-size:13px;color:var(--muted)}
+  .form-ok{margin-top:14px;font-size:14px;color:var(--teal);font-weight:600;display:none}
+  /* ---------- features ---------- */
+  section{padding:56px 0}
+  h2{font-family:'Press Start 2P',monospace;font-size:clamp(16px,3.4vw,24px);text-align:center;margin-bottom:40px;line-height:1.5}
+  h2 .o{color:var(--orange)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:18px}
+  .card{
+    background:var(--panel);border:3px solid #26264a;padding:26px 22px;
+    box-shadow:6px 6px 0 #08081a;transition:transform .12s, border-color .12s;
+  }
+  .card:hover{transform:translateY(-4px);border-color:var(--orange)}
+  .card .ico{font-size:30px;margin-bottom:16px;display:block}
+  .card h3{font-family:'Press Start 2P',monospace;font-size:12px;margin-bottom:12px;color:var(--orange);line-height:1.6}
+  .card p{color:var(--muted);font-size:14px;line-height:1.65}
+  /* ---------- strip ---------- */
+  .strip{
+    background:linear-gradient(180deg,#171732,#101024);
+    border-top:3px solid var(--orange);border-bottom:3px solid var(--orange);
+    text-align:center;padding:44px 20px;
+  }
+  .strip .pixel{font-size:12px;color:var(--orange);letter-spacing:2px;display:block;margin-bottom:16px;line-height:1.8}
+  .strip p{color:var(--muted);max-width:560px;margin:0 auto;line-height:1.7;font-size:15px}
+  /* ---------- waitlist section ---------- */
+  .cta{text-align:center}
+  .cta p{color:var(--muted);margin-bottom:26px;line-height:1.7}
+  /* ---------- footer ---------- */
+  footer{border-top:3px solid #26264a;padding:34px 0;text-align:center;color:var(--muted);font-size:13px;line-height:2}
+  footer .fam{font-family:'Press Start 2P',monospace;font-size:9px;letter-spacing:1px;color:var(--ink)}
+  footer .fam span{color:var(--teal)}
+  @media (max-width:560px){
+    form.waitlist button{flex:1 1 100%;margin-top:10px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <nav>
+    <div class="logo"><span class="logo-mark">📊</span>128bit Tracker</div>
+    <span class="badge">COMING SOON</span>
+  </nav>
+
+  <header>
+    <div class="eyebrow">FROM THE 128BIT FAMILY</div>
+    <div class="stamp">★ HABITS · STREAKS · STATS ★</div>
+    <h1><span class="t">TRACK ANYTHING.</span><br><span class="o">STREAK EVERYTHING.</span></h1>
+    <p class="sub">The 128bit family's record-keeper. Log anything in seconds, build streaks that stick, and see your whole life — workouts, money, music, all of it — on one timeline.</p>
+
+    <!-- WAITLIST: create a free form at formspree.io and replace YOUR_FORM_ID below, then it just works. -->
+    <form class="waitlist" id="waitlist" action="https://formspree.io/f/YOUR_FORM_ID" method="POST">
+      <input type="email" name="email" placeholder="you@example.com" required aria-label="Email address">
+      <input type="hidden" name="_subject" value="128bit Tracker waitlist signup">
+      <button type="submit">JOIN THE WAITLIST</button>
+    </form>
+    <p class="form-note">Early access + first streak challenges. No spam, ever.</p>
+    <p class="form-ok" id="formOk">✓ You're on the board. Keep the streak alive.</p>
+  </header>
+
+  <section>
+    <h2>YOUR LIFE, <span class="o">ON THE RECORD</span></h2>
+    <div class="grid">
+      <div class="card">
+        <span class="ico">⚡</span>
+        <h3>LOG ANYTHING IN SECONDS</h3>
+        <p>Water, sleep, reading, moods, meds — if it matters, it gets a button. Two taps and it's on the record. No friction, no abandoned journals.</p>
+      </div>
+      <div class="card">
+        <span class="ico">🔥</span>
+        <h3>STREAKS THAT STICK</h3>
+        <p>Daily chains with streak freezes for real life. Miss a day without losing the run — consistency beats perfection, and the app knows it.</p>
+      </div>
+      <div class="card">
+        <span class="ico">🗓️</span>
+        <h3>ONE FAMILY TIMELINE</h3>
+        <p>Every event from every 128bit app — workouts, budgets, playlists, wins — lands on one timeline. 128bitlife plays the game; Tracker keeps the score.</p>
+      </div>
+      <div class="card">
+        <span class="ico">📈</span>
+        <h3>STATS, NOT GUILT</h3>
+        <p>Completion rates, best streaks, trends over time. Numbers that show you what you're actually doing — no shame spirals, just the record.</p>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<div class="strip">
+  <span class="pixel">BUILT BY A STREAK-BREAKER, FOR STREAK-KEEPERS</span>
+  <p>128bit Tracker is being built by someone who has started seventeen journals and finished zero. This one is different: two taps, done.</p>
+</div>
+
+<div class="wrap">
+  <section class="cta">
+    <h2>START YOUR <span class="o">STREAK</span></h2>
+    <p>Join the waitlist for early access, beta streak challenges,<br>and strong opinions about streak freezes.</p>
+    <form class="waitlist" id="waitlist2" action="https://formspree.io/f/YOUR_FORM_ID" method="POST">
+      <input type="email" name="email" placeholder="you@example.com" required aria-label="Email address">
+      <input type="hidden" name="_subject" value="128bit Tracker waitlist signup">
+      <button type="submit">JOIN THE WAITLIST</button>
+    </form>
+    <p class="form-ok" id="formOk2">✓ You're on the board. Keep the streak alive.</p>
+  </section>
+
+  <footer>
+    <div class="fam"><span>128bit</span>tracker · <span>128bit</span>fit · <span>128bit</span>play · <span>128bit</span>trip · <span>128bit</span>gold · <span>128bit</span>fantasy · <span>128bit</span>music · <span>128bit</span>life</div>
+    128bit Tracker — part of the 128bit family<br>© 2026 128bit
+  </footer>
+</div>
+
+<script>
+  // If the Formspree ID hasn't been set yet, don't POST into the void —
+  // just confirm locally so the page still feels alive.
+  document.querySelectorAll('form.waitlist').forEach(function(form, i){
+    form.addEventListener('submit', function(e){
+      if (form.action.indexOf('YOUR_FORM_ID') !== -1){
+        e.preventDefault();
+        var ok = document.getElementById(i === 0 ? 'formOk' : 'formOk2');
+        if (ok) ok.style.display = 'block';
+        form.querySelector('input[type=email]').value = '';
+      }
+    });
+  });
+</script>
+</body>
+</html>

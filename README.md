@@ -32,8 +32,11 @@ tagged "also on Trakt".
   projects set up earlier just run it again.
 - Schema and API: [`docs/EVENTS.md`](docs/EVENTS.md), types in [`src/events.ts`](src/events.ts).
 
-Open `timeline.html` from GitHub Pages (or any static host) or locally, then enter the project
-URL, anon key, email and password.
+Open `timeline.html` from GitHub Pages (or any static host) and sign in with your
+**128bit family account**: Continue with Google, Continue with Apple, or email and password,
+the same account as 128bitPlay and 128bitfit. The family Supabase project is built in;
+"Use my own Supabase project" points it elsewhere. Google and Apple need the page's address in
+Supabase → Authentication → URL Configuration → Redirect URLs.
 
 ## Concept (starter — Daniel decides)
 

@@ -109,12 +109,22 @@ language sql security definer set search_path = public as $$
   delete from family_keys where user_id = auth.uid() and key_hash = decode(key_id, 'hex')
 $$;
 
+-- Deletes the signed-in account and, through the cascades, everything it stored in every
+-- 128bit app: settings, TVs, feed, keys. Required by Google Play and the App Store.
+create or replace function public.delete_my_account() returns void
+language plpgsql security definer set search_path = public, auth as $$
+begin
+  if auth.uid() is null then raise exception 'Sign in first'; end if;
+  delete from auth.users where id = auth.uid();
+end $$;
+
 revoke all on function public.family_owner(), public.family_insert(uuid, jsonb), public.log_events(jsonb),
   public.log_events_with_key(text, jsonb), public.delete_event(text), public.get_events(bigint, int),
-  public.create_family_key(text), public.list_family_keys(), public.delete_family_key(text)
-  from public, anon, authenticated;  -- Supabase grants new functions to everyone; family_insert must stay internal.
+  public.create_family_key(text), public.list_family_keys(), public.delete_family_key(text),
+  public.delete_my_account() from public, anon, authenticated;  -- Supabase grants new functions to everyone; family_insert must stay internal.
 grant execute on function public.log_events(jsonb), public.delete_event(text), public.get_events(bigint, int),
-  public.create_family_key(text), public.list_family_keys(), public.delete_family_key(text) to authenticated;
+  public.create_family_key(text), public.list_family_keys(), public.delete_family_key(text),
+  public.delete_my_account() to authenticated;
 -- The one call that works without a sign-in: it checks the key itself.
 grant execute on function public.log_events_with_key(text, jsonb) to anon, authenticated;
 -- End of the family block.

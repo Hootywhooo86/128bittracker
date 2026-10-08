@@ -112,17 +112,28 @@
   <p class="sub">Everything you do, in one place: 128bitPlay, 128bitfit and your phone's health data, Trakt, Hardcover, anything you log here, and any app you plug in.</p>
 
   <form class="panel" id="signin" hidden>
-    <label for="url">Supabase project URL</label>
-    <input id="url" placeholder="https://abcd1234.supabase.co" autocomplete="off" required>
-    <label for="key">Anon public key</label>
-    <input id="key" placeholder="eyJ…" autocomplete="off" required>
-    <label for="mail">Email</label>
-    <input id="mail" type="email" autocomplete="username" required>
-    <label for="pass">Password</label>
-    <input id="pass" type="password" autocomplete="current-password" required>
-    <button type="submit" class="mt">Sign in</button>
+    <h2>128BIT FAMILY ACCOUNT</h2>
+    <p class="help" style="margin:0 0 14px">One sign-in for 128bitPlay, 128bitfit, Tracker and the rest.</p>
+    <div class="log">
+      <button type="button" id="google">Continue with Google</button>
+      <button type="button" id="apple" class="ghost" style="font-size:10px;padding:12px 14px">Continue with Apple</button>
+    </div>
+    <label for="mail">Or with email</label>
+    <input id="mail" type="email" autocomplete="username" placeholder="Email" required>
+    <input id="pass" type="password" autocomplete="current-password" placeholder="Password" required style="margin-top:8px">
+    <div class="log mt">
+      <button type="submit">Sign in</button>
+      <button type="button" id="signup" class="ghost" style="font-size:10px;padding:12px 14px">Create account</button>
+    </div>
     <div class="err" id="signin-err" hidden></div>
-    <p class="help">Use the same project and account as 128bitPlay (<code>Settings → Account</code>) and 128bitfit (<code>Settings → 128bit family</code>). New project? Run the <a href="supabase/family.sql" style="color:var(--orange)">family setup SQL</a> in its SQL Editor first.</p>
+    <details class="mt" id="own">
+      <summary class="help" style="cursor:pointer">Use my own Supabase project</summary>
+      <label for="url">Supabase project URL</label>
+      <input id="url" placeholder="https://abcd1234.supabase.co" autocomplete="off">
+      <label for="key">Anon / publishable key</label>
+      <input id="key" placeholder="sb_publishable_… or eyJ…" autocomplete="off">
+      <p class="help">Run the <a href="supabase/family.sql" style="color:var(--orange)">family setup SQL</a> in it first. Leave both empty for the 128bit family account.</p>
+    </details>
   </form>
 
   <div id="app" hidden>
@@ -151,7 +162,11 @@
 
 <script>
 (() => {
+  // The 128bit family project. Its publishable key is meant to be public; the tables are only
+  // reachable through supabase/family.sql's functions.
+  const FAMILY = { url: 'https://wvflpwtaszpstmjpkrhu.supabase.co', key: 'sb_publishable_dO8uP74cTV1tbuqESgxysw_323C7lWh' };
   const STORE = '128bit.tracker.account';
+  const PKCE = '128bit.tracker.pkce';
   const PREFS = '128bit.tracker.prefs';
   const PAGE = 200;
   const DAY = 86400000;
@@ -508,7 +523,20 @@
     list.textContent = '';
     let on = 1;
 
-    list.appendChild(conn('Family feed', 'ok', `Signed in as ${acct.email || 'you'}. Everything below that posts to the feed lands here.`));
+    const del = el('div', 'row');
+    const delBtn = el('button', 'ghost', 'Delete account');
+    delBtn.type = 'button';
+    delBtn.onclick = async () => {
+      if (!confirm('Delete your 128bit family account? Everything every 128bit app sent to it (timeline, synced settings, keys) is deleted for good.')) return;
+      try {
+        await rpc('delete_my_account');
+        save(acct.url === FAMILY.url ? null : { url: acct.url, key: acct.key });
+        show();
+      } catch (x) { alert(x.message); }
+    };
+    del.appendChild(delBtn);
+    list.appendChild(conn(acct.url === FAMILY.url ? '128bit family account' : 'Your own Supabase project', 'ok',
+      `Signed in as ${acct.email || 'you'}. Everything below that posts to the feed lands here.`, del));
 
     const playN = counts.play || 0;
     if (playN) on++;
@@ -646,7 +674,7 @@
     $('who').hidden = !signedIn;
     $('app').hidden = !signedIn;
     if (!signedIn) {
-      if (acct) { $('url').value = acct.url || ''; $('key').value = acct.key || ''; }
+      if (acct && acct.url && acct.url !== FAMILY.url) { $('url').value = acct.url; $('key').value = acct.key || ''; $('own').open = true; }
       return;
     }
     $('email').textContent = acct.email || '';
@@ -656,20 +684,77 @@
     loadPlay().then(refreshExternal);
   }
 
-  $('signin').addEventListener('submit', async (e) => {
-    e.preventDefault();
+  // The project to sign in to: the family one unless "Use my own" has both fields filled.
+  function chosenProject() {
     const url = $('url').value.trim().replace(/\/+$/, '');
     const key = $('key').value.trim();
-    const err = $('signin-err');
-    err.hidden = true;
-    if (!/^https:\/\/[^/]+$/.test(url)) { err.textContent = 'The Project URL looks like https://abcd1234.supabase.co'; err.hidden = false; return; }
+    if (!url && !key) return { url: FAMILY.url, key: FAMILY.key };
+    if (!/^https:\/\/[^/]+$/.test(url)) throw new Error('The Project URL looks like https://abcd1234.supabase.co');
+    if (key.length < 20) throw new Error('Paste the anon / publishable key from Supabase → Settings → API.');
+    return { url, key };
+  }
+
+  function signinError(x) { $('signin-err').textContent = x.message; $('signin-err').hidden = false; }
+
+  $('signin').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    $('signin-err').hidden = true;
     try {
-      const j = await auth(url, key, 'token?grant_type=password', { email: $('mail').value.trim(), password: $('pass').value });
+      const p = chosenProject();
+      const j = await auth(p.url, p.key, 'token?grant_type=password', { email: $('mail').value.trim(), password: $('pass').value });
       $('pass').value = '';
-      save(withSession({ url, key }, j));
+      save(withSession(p, j));
       show();
-    } catch (x) { err.textContent = x.message; err.hidden = false; }
+    } catch (x) { signinError(x); }
   });
+
+  $('signup').addEventListener('click', async () => {
+    $('signin-err').hidden = true;
+    try {
+      const p = chosenProject();
+      if ($('pass').value.length < 6) throw new Error('Pick a password of at least 6 characters.');
+      const j = await auth(p.url, p.key, 'signup', { email: $('mail').value.trim(), password: $('pass').value });
+      $('pass').value = '';
+      if (!j.access_token) { signinError(new Error('Account created. Tap the link in the email we sent, then sign in here.')); return; }
+      save(withSession(p, j));
+      show();
+    } catch (x) { signinError(x); }
+  });
+
+  // Google / Apple: Supabase's sign-in page, back here with ?code=…; PKCE (S256) so the code
+  // is useless without the verifier kept in this tab.
+  const b64url = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const here = () => location.origin + location.pathname;
+
+  async function provider(name) {
+    $('signin-err').hidden = true;
+    try {
+      const p = chosenProject();
+      const verifier = b64url(crypto.getRandomValues(new Uint8Array(48)));
+      const challenge = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
+      sessionStorage.setItem(PKCE, JSON.stringify({ verifier, url: p.url, key: p.key }));
+      location.href = `${p.url}/auth/v1/authorize?provider=${name}&redirect_to=${encodeURIComponent(here())}` +
+        `&code_challenge=${challenge}&code_challenge_method=s256`;
+    } catch (x) { signinError(x.message === 'Failed to fetch' ? new Error('Couldn\u2019t reach the account service.') : x); }
+  }
+  $('google').addEventListener('click', () => provider('google'));
+  $('apple').addEventListener('click', () => provider('apple'));
+
+  async function finishProvider() {
+    const q = new URLSearchParams(location.search);
+    const code = q.get('code');
+    const error = q.get('error_description');
+    if (!code && !error) return;
+    history.replaceState(null, '', here());
+    if (error) { $('signin').hidden = false; signinError(new Error(error)); return; }
+    let pending = null;
+    try { pending = JSON.parse(sessionStorage.getItem(PKCE)); sessionStorage.removeItem(PKCE); } catch (x) { /* none */ }
+    if (!pending) { $('signin').hidden = false; signinError(new Error('That sign-in link is old. Try Continue with Google or Apple again.')); return; }
+    try {
+      const j = await auth(pending.url, pending.key, 'token?grant_type=pkce', { auth_code: code, code_verifier: pending.verifier });
+      save(withSession(pending, j));
+    } catch (x) { $('signin').hidden = false; signinError(x); }
+  }
 
   $('signout').addEventListener('click', () => {
     const a = acct;
@@ -681,7 +766,7 @@
 
   $('more').addEventListener('click', loadFeed);
 
-  show();
+  finishProvider().then(show);
 })();
 </script>
 </body>

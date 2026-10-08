@@ -111,7 +111,8 @@ $$;
 
 revoke all on function public.family_owner(), public.family_insert(uuid, jsonb), public.log_events(jsonb),
   public.log_events_with_key(text, jsonb), public.delete_event(text), public.get_events(bigint, int),
-  public.create_family_key(text), public.list_family_keys(), public.delete_family_key(text) from public, anon;
+  public.create_family_key(text), public.list_family_keys(), public.delete_family_key(text)
+  from public, anon, authenticated;  -- Supabase grants new functions to everyone; family_insert must stay internal.
 grant execute on function public.log_events(jsonb), public.delete_event(text), public.get_events(bigint, int),
   public.create_family_key(text), public.list_family_keys(), public.delete_family_key(text) to authenticated;
 -- The one call that works without a sign-in: it checks the key itself.

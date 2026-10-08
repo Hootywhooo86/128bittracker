@@ -7,7 +7,36 @@ Part of the 128bit family.
 
 > Product direction is Daniel's call — this README is a starter brief so
 > Carlos (Claude Code) has something concrete to react to. The landing page
-> is live; the app itself is unstarted.
+> is live, and so is the family timeline (below); the rest of the app
+> (trackers, streaks, stats) is unstarted.
+
+## Connected: everything → one timeline
+
+[`timeline.html`](timeline.html) is a working, web-first timeline. It signs in to the user's
+own Supabase project and shows, newest first and grouped by day, with filters per source:
+
+| Source | How it gets here |
+|---|---|
+| **128bitPlay** | Books, movies, episodes, comic chapters, posted to the family feed when signed in. |
+| **128bitfit** | Workouts (strength and cardio), opt-in under its Settings → 128bit family. |
+| **Google Health** | Daily Health Connect totals (steps, sleep, resting HR, active kcal, distance; never weight), opt-in through 128bitfit. Health Connect has no web API, so the phone sends them. |
+| **Trakt** | Read directly, reusing 128bitPlay's Trakt sign-in. |
+| **Hardcover** | Books marked Read, reusing 128bitPlay's token (or paste one). |
+| **Log anything** | Two taps: type it (plus an amount) or tap a recent chip. Posts `habit.completed`. |
+| **Any app** | Zapier, IFTTT, Tasker, iOS Shortcuts, scripts: a personal key and one HTTP POST. |
+
+Duplicates (a Play episode that Trakt also scrobbled, a book Hardcover also has) show once,
+tagged "also on Trakt".
+
+- Feed SQL: [`supabase/family.sql`](supabase/family.sql). 128bitPlay's setup SQL includes it;
+  projects set up earlier just run it again.
+- Schema and API: [`docs/EVENTS.md`](docs/EVENTS.md), types in [`src/events.ts`](src/events.ts).
+
+Open `timeline.html` from GitHub Pages (or any static host) and sign in with your
+**128bit family account**: Continue with Google, Continue with Apple, or email and password,
+the same account as 128bitPlay and 128bitfit. The family Supabase project is built in;
+"Use my own Supabase project" points it elsewhere. Google and Apple need the page's address in
+Supabase → Authentication → URL Configuration → Redirect URLs.
 
 ## Concept (starter — Daniel decides)
 

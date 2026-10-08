@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>128bit Timeline</title>
-<meta name="description" content="Everything you finished across the 128bit apps, on one timeline.">
+<meta name="description" content="Everything you do across the 128bit apps, Trakt, Hardcover and anything else you connect, on one timeline.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
@@ -35,32 +35,67 @@
   }
   h1{font-family:'Press Start 2P',monospace;font-size:clamp(16px,4vw,22px);line-height:1.5;margin:18px 0 10px}
   h1 .o{color:var(--orange)}
-  .sub{color:var(--muted);line-height:1.6;margin-bottom:26px}
-  .panel{background:var(--panel);border:3px solid var(--line);padding:22px;box-shadow:6px 6px 0 #08081a}
+  h2{font-family:'Press Start 2P',monospace;font-size:10px;letter-spacing:1px;color:var(--teal);margin:0 0 12px}
+  .sub{color:var(--muted);line-height:1.6;margin-bottom:22px}
+  .panel{background:var(--panel);border:3px solid var(--line);padding:18px;box-shadow:6px 6px 0 #08081a;margin-bottom:18px}
   label{display:block;font-size:13px;color:var(--muted);margin:14px 0 6px}
   input{
     width:100%;background:var(--bg);border:3px solid var(--teal);color:var(--ink);
-    padding:12px 14px;font-size:15px;font-family:inherit;outline:none;
+    padding:12px 14px;font-size:15px;font-family:inherit;outline:none;min-width:0;
   }
   input:focus{border-color:var(--orange)}
-  .help{font-size:13px;color:var(--muted);line-height:1.6;margin-top:16px}
-  .help code{color:var(--ink)}
+  .help{font-size:13px;color:var(--muted);line-height:1.6;margin-top:12px}
+  .help code,.mono{color:var(--ink);font-family:ui-monospace,Menlo,monospace;font-size:12px;overflow-wrap:anywhere}
+  pre.mono{white-space:pre-wrap;background:var(--bg);border:2px solid var(--line);padding:10px;margin-top:8px;line-height:1.5}
   button{
-    font-family:'Press Start 2P',monospace;font-size:11px;background:var(--orange);color:#201100;
-    border:3px solid var(--orange);padding:12px 16px;cursor:pointer;margin-top:20px;
+    font-family:'Press Start 2P',monospace;font-size:10px;background:var(--orange);color:#201100;
+    border:3px solid var(--orange);padding:12px 14px;cursor:pointer;
     box-shadow:0 5px 0 #a05e00;
   }
   button:active{transform:translateY(4px);box-shadow:0 1px 0 #a05e00}
-  button.ghost{background:transparent;color:var(--muted);border-color:var(--line);box-shadow:none;margin-top:0;font-size:9px;padding:8px 10px}
-  .err{color:var(--pink);margin-top:14px;font-size:14px;line-height:1.5}
+  button.ghost{background:transparent;color:var(--muted);border-color:var(--line);box-shadow:none;font-size:9px;padding:8px 10px}
+  button.ghost:active{transform:none}
+  .mt{margin-top:16px}
+  .err{color:var(--pink);margin-top:12px;font-size:14px;line-height:1.5}
   .who{font-size:13px;color:var(--muted);display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
-  .day{font-family:'Press Start 2P',monospace;font-size:10px;color:var(--teal);letter-spacing:1px;margin:30px 0 12px}
+  /* quick log */
+  .log{display:flex;gap:8px;flex-wrap:wrap}
+  .log #what{flex:3 1 180px}
+  .log #amount{flex:1 1 90px}
+  .log button{flex:0 0 auto}
+  .chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+  .chip{
+    font-family:'Inter',sans-serif;font-size:13px;font-weight:600;background:var(--bg);color:var(--ink);
+    border:2px solid var(--line);padding:7px 11px;box-shadow:none;cursor:pointer;
+  }
+  .chip:active{transform:none}
+  .chip.on{border-color:var(--orange);color:var(--orange)}
+  .chip .n{color:var(--muted);font-weight:400;margin-left:4px}
+  /* connections */
+  details.panel summary{cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center}
+  details.panel summary::-webkit-details-marker{display:none}
+  details.panel summary h2{margin:0}
+  details.panel summary .state{font-size:12px;color:var(--muted)}
+  .conn{border-top:2px solid var(--line);padding:14px 0}
+  .conn:first-of-type{margin-top:14px}
+  .conn .top{display:flex;gap:10px;align-items:baseline;justify-content:space-between;flex-wrap:wrap}
+  .conn .name{font-weight:800}
+  .conn .st{font-size:12px;font-family:'Press Start 2P',monospace;letter-spacing:.5px}
+  .st.ok{color:var(--teal)} .st.off{color:var(--muted)} .st.bad{color:var(--pink)}
+  .conn p{font-size:13px;color:var(--muted);line-height:1.6;margin-top:6px}
+  .conn .row{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+  .conn .row input{flex:1 1 200px;padding:9px 11px;font-size:14px;border-width:2px}
+  .key{display:flex;justify-content:space-between;gap:10px;align-items:center;font-size:13px;margin-top:8px}
+  /* timeline */
+  .day{font-family:'Press Start 2P',monospace;font-size:10px;color:var(--teal);letter-spacing:1px;margin:28px 0 12px}
   .ev{display:flex;gap:14px;align-items:flex-start;background:var(--panel);border:3px solid var(--line);padding:14px;margin-bottom:10px}
   .ev .ico{font-size:22px;width:30px;text-align:center;flex:none}
   .ev .main{flex:1;min-width:0}
   .ev .what{font-weight:600;line-height:1.4;overflow-wrap:anywhere}
-  .ev .meta{color:var(--muted);font-size:13px;margin-top:4px}
-  .ev .app{font-family:'Press Start 2P',monospace;font-size:8px;color:var(--orange);flex:none;padding-top:4px}
+  .ev .meta{color:var(--muted);font-size:13px;margin-top:4px;line-height:1.5}
+  .ev .side{display:flex;flex-direction:column;align-items:flex-end;gap:8px;flex:none}
+  .ev .app{font-family:'Press Start 2P',monospace;font-size:8px;color:var(--orange);padding-top:4px}
+  .ev .x{background:none;border:none;box-shadow:none;color:var(--muted);font-size:16px;padding:0 2px;font-family:inherit;cursor:pointer}
   .empty{color:var(--muted);text-align:center;padding:40px 0;line-height:1.7}
   .more{display:block;margin:20px auto 0}
   [hidden]{display:none !important}
@@ -74,7 +109,7 @@
   </nav>
 
   <h1>Your <span class="o">timeline</span></h1>
-  <p class="sub">Everything you finished across the 128bit apps: books, movies, episodes and comic chapters from 128bitPlay so far.</p>
+  <p class="sub">Everything you do, in one place: 128bitPlay, 128bitfit and your phone's health data, Trakt, Hardcover, anything you log here, and any app you plug in.</p>
 
   <form class="panel" id="signin" hidden>
     <label for="url">Supabase project URL</label>
@@ -85,194 +120,566 @@
     <input id="mail" type="email" autocomplete="username" required>
     <label for="pass">Password</label>
     <input id="pass" type="password" autocomplete="current-password" required>
-    <button type="submit">Sign in</button>
+    <button type="submit" class="mt">Sign in</button>
     <div class="err" id="signin-err" hidden></div>
-    <p class="help">Use the same project and account as 128bitPlay (<code>Settings → Account</code>). Already set up before the timeline existed? Run 128bitPlay's setup SQL again; it adds the feed.</p>
+    <p class="help">Use the same project and account as 128bitPlay (<code>Settings → Account</code>) and 128bitfit (<code>Settings → 128bit family</code>). New project? Run the <a href="supabase/family.sql" style="color:var(--orange)">family setup SQL</a> in its SQL Editor first.</p>
   </form>
 
-  <div id="feed" hidden></div>
-  <div class="err" id="feed-err" hidden></div>
-  <button class="more" id="more" hidden>Load older</button>
+  <div id="app" hidden>
+    <form class="panel" id="quick">
+      <h2>LOG ANYTHING</h2>
+      <div class="log">
+        <input id="what" placeholder="Water, meds, a walk, a mood…" autocomplete="off" required>
+        <input id="amount" placeholder="Amount" inputmode="decimal" autocomplete="off">
+        <button type="submit">Log</button>
+      </div>
+      <div class="chips" id="recent"></div>
+      <div class="err" id="quick-err" hidden></div>
+    </form>
+
+    <details class="panel" id="connections">
+      <summary><h2>CONNECTIONS</h2><span class="state" id="conn-state"></span></summary>
+      <div id="conn-list"></div>
+    </details>
+
+    <div class="chips" id="filters"></div>
+    <div id="feed"></div>
+    <div class="err" id="feed-err" hidden></div>
+    <button class="more" id="more" hidden>Load older</button>
+  </div>
 </div>
 
 <script>
-(function () {
-  var STORE = '128bit.tracker.account';
-  var PAGE = 200;
+(() => {
+  const STORE = '128bit.tracker.account';
+  const PREFS = '128bit.tracker.prefs';
+  const PAGE = 200;
+  const DAY = 86400000;
 
-  // Icons and wording per event type (docs/EVENTS.md). Unknown types still show.
-  var TYPES = {
-    'book.finished':    { ico: '🎧', text: function (d) { return 'Finished ' + d.title + (d.author ? ' by ' + d.author : ''); } },
-    'movie.watched':    { ico: '🎬', text: function (d) { return 'Watched ' + d.title; } },
-    'episode.watched':  { ico: '📺', text: function (d) { return d.show + (d.episode ? ' · ' + d.episode : ''); } },
-    'chapter.read':     { ico: '📖', text: function (d) { return 'Read a chapter of ' + d.comic; } },
-    'habit.completed':  { ico: '✅', text: function (d) { return d.tracker + (d.value != null ? ' · ' + d.value + (d.unit ? ' ' + d.unit : '') : ''); } },
-    'streak.milestone': { ico: '🔥', text: function (d) { return d.days + '-day streak: ' + d.tracker; } },
-    'streak.frozen':    { ico: '🧊', text: function (d) { return 'Streak freeze used: ' + d.tracker; } },
-    'workout.logged':   { ico: '💪', text: function (d) { return d.name + (d.minutes ? ' · ' + d.minutes + ' min' : ''); } },
-    'budget.updated':   { ico: '💰', text: function (d) { return 'Budget updated: ' + d.name; } },
-    'track.played':     { ico: '🎵', text: function (d) { return d.title + (d.artist ? ' · ' + d.artist : ''); } },
-    'matchup.won':      { ico: '🏆', text: function (d) { return 'Won in ' + d.league + (d.score ? ' · ' + d.score : ''); } },
-    'booking.made':     { ico: '✈️', text: function (d) { return 'Booked ' + d.place; } }
+  const $ = (id) => document.getElementById(id);
+  const store = {
+    get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch (e) { return d; } },
+    set(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
   };
 
-  var $ = function (id) { return document.getElementById(id); };
-  var acct = load();
-  var events = [];
-  var lastDay = null;
+  let acct = store.get(STORE, null);
+  let prefs = store.get(PREFS, {});
+  let feed = [];          // from the family feed, newest first
+  let feedDone = false;
+  let ext = { trakt: [], hardcover: [] };
+  let status = { trakt: null, hardcover: null, keys: null };
+  let play = {};          // 128bitPlay's synced Trakt / Hardcover sign-ins
+  let filter = 'all';
+  let newKey = null;      // shown once after creating it
 
-  function load() {
-    try { return JSON.parse(localStorage.getItem(STORE)) || null; } catch (e) { return null; }
+  const savePrefs = () => store.set(PREFS, prefs);
+  const save = (a) => { acct = a; store.set(STORE, a); };
+
+  // ---------- What each event looks like (docs/EVENTS.md). Unknown types still show. ----------
+
+  const num = (n) => Number(n).toLocaleString();
+  const mins = (m) => (m >= 60 ? `${Math.floor(m / 60)} h ${Math.round(m % 60)} min` : `${Math.round(m)} min`);
+  const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+  const join = (...parts) => parts.filter((p) => p !== null && p !== undefined && p !== '').join(' · ');
+
+  const TYPES = {
+    'book.finished':    { ico: '🎧', text: (d) => `Finished ${d.title}${d.author ? ' by ' + d.author : ''}` },
+    'movie.watched':    { ico: '🎬', text: (d) => `Watched ${d.title}${d.year ? ' (' + d.year + ')' : ''}` },
+    'episode.watched':  { ico: '📺', text: (d) => join(d.show, d.episode) },
+    'chapter.read':     { ico: '📖', text: (d) => `Read a chapter of ${d.comic}` },
+    'workout.logged':   { ico: '💪', text: (d) => (d.kind === 'cardio' ? '🏃 ' : '') + join(d.name, d.minutes ? mins(d.minutes) : null,
+                            d.sets ? d.sets + ' sets' : null, d.km != null ? d.km + ' km' : null) },
+    'health.day':       { ico: '❤️', text: (d) => join(d.steps != null ? num(d.steps) + ' steps' : null,
+                            d.sleepMinutes != null ? mins(d.sleepMinutes) + ' sleep' : null,
+                            d.restingHeartRate != null ? d.restingHeartRate + ' bpm resting' : null,
+                            d.activeCalories != null ? num(d.activeCalories) + ' active kcal' : null,
+                            d.km != null ? d.km + ' km' : null) || 'Health totals' },
+    'habit.completed':  { ico: '✅', text: (d) => join(d.tracker, d.value != null ? d.value + (d.unit ? ' ' + d.unit : '') : null) },
+    'streak.milestone': { ico: '🔥', text: (d) => `${d.days}-day streak: ${d.tracker}` },
+    'streak.frozen':    { ico: '🧊', text: (d) => `Streak freeze used: ${d.tracker}` },
+    'budget.updated':   { ico: '💰', text: (d) => `Budget updated: ${d.name}` },
+    'track.played':     { ico: '🎵', text: (d) => join(d.title, d.artist) },
+    'matchup.won':      { ico: '🏆', text: (d) => join('Won in ' + d.league, d.score) },
+    'booking.made':     { ico: '✈️', text: (d) => `Booked ${d.place}` }
+  };
+
+  // Which filter chip an event belongs to.
+  function source(e) {
+    if (e.type === 'health.day') return 'health';
+    if (['play', 'fit', 'tracker', 'trakt', 'hardcover'].includes(e.app)) return e.app;
+    return 'other';
   }
-  function save(a) {
-    acct = a;
-    try { a ? localStorage.setItem(STORE, JSON.stringify(a)) : localStorage.removeItem(STORE); } catch (e) {}
+  const SOURCES = { all: 'All', play: '128bitPlay', fit: '128bitfit', health: 'Health', trakt: 'Trakt',
+    hardcover: 'Hardcover', tracker: 'Logged here', other: 'Other apps' };
+  const APP_LABEL = { trakt: 'TRAKT', hardcover: 'HARDCOVER', custom: 'CUSTOM' };
+
+  function describe(e) {
+    const t = TYPES[e.type];
+    const d = e.data || {};
+    try {
+      if (t) return { ico: t.ico, what: t.text(d) };
+    } catch (x) { /* fall through */ }
+    const name = d.title || d.name || d.tracker || d.text;
+    return { ico: '•', what: name ? join(name, e.type) : `${e.type} ${JSON.stringify(d)}` };
   }
 
-  function auth(url, key, path, body) {
-    return fetch(url + '/auth/v1/' + path, {
+  // ---------- Supabase ----------
+
+  async function auth(url, key, path, body) {
+    const r = await fetch(url + '/auth/v1/' + path, {
+      method: 'POST', headers: { apikey: key, 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error_description || j.msg || j.message || 'Supabase answered ' + r.status);
+    return j;
+  }
+
+  const withSession = (a, j) => ({
+    url: a.url, key: a.key, access: j.access_token, refresh: j.refresh_token,
+    expires: j.expires_at || Math.floor(Date.now() / 1000) + (j.expires_in || 3600),
+    email: (j.user && j.user.email) || a.email
+  });
+
+  async function token() {
+    if (acct.expires - 60 > Date.now() / 1000) return acct.access;
+    try {
+      const j = await auth(acct.url, acct.key, 'token?grant_type=refresh_token', { refresh_token: acct.refresh });
+      save(withSession(acct, j));
+      return acct.access;
+    } catch (e) {
+      // Revoked or expired for good: back to the sign-in form.
+      if (/invalid|not found|revoked|expired/i.test(e.message)) { save({ url: acct.url, key: acct.key }); show(); }
+      throw e;
+    }
+  }
+
+  async function rpc(fn, args) {
+    const t = await token();
+    const r = await fetch(acct.url + '/rest/v1/rpc/' + fn, {
       method: 'POST',
-      headers: { apikey: key, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    }).then(function (r) {
-      return r.json().catch(function () { return {}; }).then(function (j) {
-        if (!r.ok) throw new Error(j.error_description || j.msg || j.message || ('Supabase answered ' + r.status));
-        return j;
-      });
+      headers: { apikey: acct.key, Authorization: 'Bearer ' + t, 'Content-Type': 'application/json' },
+      body: JSON.stringify(args || {})
     });
+    const txt = await r.text();
+    let body = null;
+    try { body = txt ? JSON.parse(txt) : null; } catch (e) { /* not JSON */ }
+    if (!r.ok) {
+      let msg = (body && body.message) || 'Supabase answered ' + r.status;
+      if (/function .* does not exist|Could not find the function/i.test(msg)) {
+        msg = 'This project is missing part of the family feed. Run the family setup SQL again (supabase/family.sql, or 128bitPlay → Settings → Account → Copy setup SQL); it only adds what’s missing.';
+      }
+      throw new Error(msg);
+    }
+    return body;
   }
 
-  function withSession(a, j) {
-    return {
-      url: a.url, key: a.key,
-      access: j.access_token, refresh: j.refresh_token,
-      expires: j.expires_at || Math.floor(Date.now() / 1000) + (j.expires_in || 3600),
-      email: (j.user && j.user.email) || a.email
-    };
+  // ---------- Sources ----------
+
+  async function loadFeed() {
+    const before = feed.length ? feed[feed.length - 1].at : null;
+    $('more').hidden = true;
+    $('feed-err').hidden = true;
+    try {
+      const batch = await rpc('get_events', { before_ms: before, max_rows: PAGE });
+      feed = feed.concat(batch);
+      feedDone = batch.length < PAGE;
+    } catch (e) {
+      $('feed-err').textContent = e.message;
+      $('feed-err').hidden = false;
+      feedDone = true;
+    }
+    render();
   }
 
-  function token() {
-    if (acct.expires - 60 > Date.now() / 1000) return Promise.resolve(acct.access);
-    return auth(acct.url, acct.key, 'token?grant_type=refresh_token', { refresh_token: acct.refresh })
-      .then(function (j) { save(withSession(acct, j)); return acct.access; })
-      .catch(function (e) {
-        // Revoked or expired for good: back to the sign-in form.
-        if (/invalid|not found|revoked|expired/i.test(e.message)) { save({ url: acct.url, key: acct.key }); show(); }
-        throw e;
+  // 128bitPlay keeps its Trakt and Hardcover sign-ins in the same account; read, never refreshed here.
+  async function loadPlay() {
+    try {
+      const doc = await rpc('get_settings');
+      const data = (doc && doc.sections && doc.sections.tracking && doc.sections.tracking.data) || {};
+      const parse = (v) => { try { return v ? JSON.parse(v) : null; } catch (e) { return null; } };
+      play = {
+        trakt: parse(data['secure:128bit.trakt']),
+        traktApp: parse(data['secure:128bit.traktApp']),
+        hardcover: data['secure:128bit.hardcover'] || null
+      };
+    } catch (e) {
+      play = {};   // no 128bitPlay setup in this project: own keys only
+    }
+  }
+
+  async function loadTrakt() {
+    const own = prefs.traktToken;
+    const tok = own || (play.trakt && play.trakt.access_token);
+    const clientId = prefs.traktClientId || (play.traktApp && play.traktApp.id);
+    if (!tok) { status.trakt = { st: 'off', msg: 'Sign in to Trakt in 128bitPlay (Settings → Tracking) and it shows up here.' }; return; }
+    if (!clientId) { status.trakt = { st: 'off', msg: 'Paste your Trakt Client ID below (trakt.tv/oauth/applications). 128bitPlay has its keys built in, so Tracker can’t borrow them.' }; return; }
+    if (!own && play.trakt.created_at && (play.trakt.created_at + play.trakt.expires_in) * 1000 < Date.now()) {
+      status.trakt = { st: 'bad', msg: 'Trakt’s sign-in has expired. Open anything in 128bitPlay and it renews it.' }; return;
+    }
+    try {
+      const r = await fetch('https://api.trakt.tv/sync/history?limit=100', {
+        headers: { 'Content-Type': 'application/json', 'trakt-api-version': '2', 'trakt-api-key': clientId, Authorization: 'Bearer ' + tok }
       });
+      if (!r.ok) throw new Error(r.status === 401 ? 'Trakt didn’t accept the sign-in. Sign in again in 128bitPlay.' : 'Trakt answered ' + r.status);
+      const items = await r.json();
+      ext.trakt = items.filter((h) => h.movie || (h.episode && h.show)).map((h) => ({
+        id: 'trakt-' + h.id, app: 'trakt', at: Date.parse(h.watched_at),
+        type: h.movie ? 'movie.watched' : 'episode.watched',
+        data: h.movie ? { title: h.movie.title, year: h.movie.year }
+          : { show: h.show.title, episode: join(`S${h.episode.season} E${h.episode.number}`, h.episode.title) }
+      }));
+      status.trakt = { st: 'ok', msg: `Your last ${plural(ext.trakt.length, 'play')}${own ? '' : ', using 128bitPlay’s sign-in'}.` };
+    } catch (e) {
+      status.trakt = { st: 'bad', msg: e.message === 'Failed to fetch' ? 'Couldn’t reach Trakt.' : e.message };
+    }
   }
 
-  function rpc(fn, args) {
-    return token().then(function (t) {
-      return fetch(acct.url + '/rest/v1/rpc/' + fn, {
+  async function loadHardcover() {
+    const tok = (prefs.hardcoverToken || play.hardcover || '').replace(/^bearer\s+/i, '');
+    if (!tok) { status.hardcover = { st: 'off', msg: 'Connect Hardcover in 128bitPlay (Settings → Tracking), or paste your API token from hardcover.app/account/api.' }; return; }
+    try {
+      const r = await fetch('https://api.hardcover.app/v1/graphql', {
         method: 'POST',
-        headers: { apikey: acct.key, Authorization: 'Bearer ' + t, 'Content-Type': 'application/json' },
-        body: JSON.stringify(args || {})
+        headers: { 'Content-Type': 'application/json', authorization: 'Bearer ' + tok },
+        body: JSON.stringify({ query: `query { me { user_books(where: {status_id: {_eq: 3}}, order_by: {last_read_date: desc_nulls_last}, limit: 100) {
+          id last_read_date updated_at book { title contributions(limit: 1) { author { name } } } } } }` })
       });
-    }).then(function (r) {
-      return r.text().then(function (txt) {
-        var body = txt ? JSON.parse(txt) : null;
-        if (!r.ok) {
-          var msg = (body && body.message) || ('Supabase answered ' + r.status);
-          if (/function .* does not exist|Could not find the function/i.test(msg)) {
-            msg = 'This project has no family feed yet. Run 128bitPlay’s setup SQL again (Settings → Account → Copy setup SQL).';
-          }
-          throw new Error(msg);
-        }
-        return body;
-      });
-    });
+      const body = await r.json().catch(() => null);
+      if (!r.ok || !body || body.errors || body.error) throw new Error((body && ((body.errors && body.errors[0].message) || body.error)) || 'Hardcover answered ' + r.status);
+      const me = Array.isArray(body.data.me) ? body.data.me[0] : body.data.me;
+      ext.hardcover = ((me && me.user_books) || []).map((u) => ({
+        id: 'hardcover-' + u.id, app: 'hardcover', type: 'book.finished',
+        at: u.last_read_date ? new Date(u.last_read_date + 'T12:00:00').getTime() : Date.parse(u.updated_at),
+        data: { title: u.book.title, author: u.book.contributions && u.book.contributions[0] && u.book.contributions[0].author && u.book.contributions[0].author.name }
+      }));
+      status.hardcover = { st: 'ok', msg: `${plural(ext.hardcover.length, 'book')} marked Read${prefs.hardcoverToken ? '' : ', using 128bitPlay’s connection'}.` };
+    } catch (e) {
+      status.hardcover = { st: 'bad', msg: e.message === 'Failed to fetch' ? 'Couldn’t reach Hardcover.' : e.message };
+    }
   }
 
-  function dayLabel(t) {
-    var d = new Date(t), today = new Date(), y = new Date();
-    y.setDate(y.getDate() - 1);
-    if (d.toDateString() === today.toDateString()) return 'TODAY';
-    if (d.toDateString() === y.toDateString()) return 'YESTERDAY';
-    return d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: d.getFullYear() === today.getFullYear() ? undefined : 'numeric' }).toUpperCase();
+  async function loadKeys() {
+    try { status.keys = await rpc('list_family_keys'); } catch (e) { status.keys = { error: e.message }; }
   }
+
+  // ---------- Merging ----------
+
+  const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+  function matchKey(e) {
+    const d = e.data || {};
+    if (e.type === 'book.finished' || e.type === 'movie.watched') return e.type + norm(d.title);
+    if (e.type === 'episode.watched') {
+      const m = /S(\d+)\s*E(\d+)/i.exec(d.episode || '');
+      return m ? e.type + norm(d.show) + 's' + +m[1] + 'e' + +m[2] : null;
+    }
+    return null;
+  }
+
+  // The family feed wins; a Trakt or Hardcover copy of the same thing within 3 days just adds a tag.
+  function merged() {
+    const oldest = feedDone || !feed.length ? -Infinity : feed[feed.length - 1].at;
+    const byKey = new Map();
+    const out = feed.map((e) => {
+      const copy = Object.assign({}, e, { also: [] });
+      const k = matchKey(e);
+      if (k) (byKey.get(k) || byKey.set(k, []).get(k)).push(copy);
+      return copy;
+    });
+    for (const e of [...ext.trakt, ...ext.hardcover]) {
+      if (e.at < oldest) continue;
+      const k = matchKey(e);
+      const twin = k && (byKey.get(k) || []).find((f) => Math.abs(f.at - e.at) < 3 * DAY);
+      if (twin) { if (!twin.also.includes(e.app)) twin.also.push(e.app); continue; }
+      out.push(Object.assign({}, e, { also: [] }));
+    }
+    return out.sort((a, b) => b.at - a.at);
+  }
+
+  // ---------- Rendering ----------
 
   function el(tag, cls, text) {
-    var n = document.createElement(tag);
+    const n = document.createElement(tag);
     if (cls) n.className = cls;
     if (text != null) n.textContent = text;
     return n;
   }
 
-  function render(batch) {
-    var feed = $('feed');
-    batch.forEach(function (e) {
-      var label = dayLabel(e.at);
-      if (label !== lastDay) { feed.appendChild(el('div', 'day', label)); lastDay = label; }
-      var t = TYPES[e.type];
-      var d = e.data || {};
-      var what;
-      try { what = t ? t.text(d) : e.type + ' ' + JSON.stringify(d); } catch (x) { what = e.type; }
-      var row = el('div', 'ev');
-      row.appendChild(el('div', 'ico', t ? t.ico : '•'));
-      var main = el('div', 'main');
+  function dayLabel(t) {
+    const d = new Date(t), today = new Date(), y = new Date();
+    y.setDate(y.getDate() - 1);
+    if (d.toDateString() === today.toDateString()) return 'TODAY';
+    if (d.toDateString() === y.toDateString()) return 'YESTERDAY';
+    return d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short',
+      year: d.getFullYear() === today.getFullYear() ? undefined : 'numeric' }).toUpperCase();
+  }
+
+  function render() {
+    const all = merged();
+    const counts = {};
+    for (const e of all) counts[source(e)] = (counts[source(e)] || 0) + 1;
+
+    const f = $('filters');
+    f.textContent = '';
+    for (const k of Object.keys(SOURCES)) {
+      const n = k === 'all' ? all.length : counts[k] || 0;
+      if (k !== 'all' && !n) continue;
+      const b = el('button', 'chip' + (filter === k ? ' on' : ''), SOURCES[k]);
+      b.type = 'button';
+      b.appendChild(el('span', 'n', String(n)));
+      b.onclick = () => { filter = k; render(); };
+      f.appendChild(b);
+    }
+
+    const box = $('feed');
+    box.textContent = '';
+    let lastDay = null;
+    const shown = all.filter((e) => filter === 'all' || source(e) === filter);
+    for (const e of shown) {
+      const label = dayLabel(e.at);
+      if (label !== lastDay) { box.appendChild(el('div', 'day', label)); lastDay = label; }
+      const { ico, what } = describe(e);
+      const row = el('div', 'ev');
+      row.appendChild(el('div', 'ico', ico));
+      const main = el('div', 'main');
       main.appendChild(el('div', 'what', what));
-      main.appendChild(el('div', 'meta', new Date(e.at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })));
+      const time = e.type === 'health.day' ? 'Day total' : new Date(e.at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+      main.appendChild(el('div', 'meta', join(time, e.also.length ? 'also on ' + e.also.map((a) => APP_LABEL[a] || a).join(', ') : null)));
       row.appendChild(main);
-      row.appendChild(el('div', 'app', ('128bit' + e.app).toUpperCase()));
-      feed.appendChild(row);
-    });
-    if (!events.length) {
-      feed.appendChild(el('p', 'empty', 'Nothing yet. Finish a book, a movie, an episode or a comic chapter in 128bitPlay while signed in, and it shows up here.'));
+      const side = el('div', 'side');
+      side.appendChild(el('div', 'app', APP_LABEL[e.app] || ('128bit' + e.app).toUpperCase()));
+      if (e.app === 'tracker') {
+        const x = el('button', 'x', '×');
+        x.title = 'Delete';
+        x.onclick = () => removeLogged(e);
+        side.appendChild(x);
+      }
+      row.appendChild(side);
+      box.appendChild(row);
+    }
+    if (!shown.length) {
+      box.appendChild(el('p', 'empty', filter === 'all'
+        ? 'Nothing yet. Log something above, or open Connections to see what can feed this timeline.'
+        : 'Nothing from here in what’s loaded.'));
+    }
+    $('more').hidden = feedDone;
+    renderRecent();
+    renderConnections(counts);
+  }
+
+  function renderRecent() {
+    const box = $('recent');
+    box.textContent = '';
+    for (const r of prefs.recent || []) {
+      const b = el('button', 'chip', '+ ' + join(r.tracker, r.value != null ? r.value + (r.unit ? ' ' + r.unit : '') : null));
+      b.type = 'button';
+      b.onclick = () => logIt(r);
+      box.appendChild(b);
     }
   }
 
-  function page() {
-    var before = events.length ? events[events.length - 1].at : null;
-    $('more').hidden = true;
-    $('feed-err').hidden = true;
-    return rpc('get_events', { before_ms: before, max_rows: PAGE }).then(function (batch) {
-      events = events.concat(batch);
-      render(batch);
-      $('more').hidden = batch.length < PAGE;
-    }).catch(function (err) {
-      $('feed-err').textContent = err.message;
-      $('feed-err').hidden = false;
-    });
+  function conn(name, st, msg, extra) {
+    const d = el('div', 'conn');
+    const top = el('div', 'top');
+    top.appendChild(el('span', 'name', name));
+    top.appendChild(el('span', 'st ' + st, st === 'ok' ? 'CONNECTED' : st === 'bad' ? 'PROBLEM' : 'NOT YET'));
+    d.appendChild(top);
+    d.appendChild(el('p', null, msg));
+    if (extra) d.appendChild(extra);
+    return d;
+  }
+
+  function field(placeholder, value, onSave, secret) {
+    const row = el('div', 'row');
+    const input = el('input');
+    input.placeholder = placeholder;
+    input.value = value || '';
+    input.autocomplete = 'off';
+    if (secret) input.type = 'password';
+    const b = el('button', 'ghost', 'Save');
+    b.type = 'button';
+    b.onclick = () => onSave(input.value.trim());
+    row.appendChild(input);
+    row.appendChild(b);
+    return row;
+  }
+
+  function renderConnections(counts) {
+    const list = $('conn-list');
+    list.textContent = '';
+    let on = 1;
+
+    list.appendChild(conn('Family feed', 'ok', `Signed in as ${acct.email || 'you'}. Everything below that posts to the feed lands here.`));
+
+    const playN = counts.play || 0;
+    if (playN) on++;
+    list.appendChild(conn('128bitPlay', playN ? 'ok' : 'off', playN
+      ? `${plural(playN, 'thing')} you finished, loaded.`
+      : 'Sign in under Settings → Account in 128bitPlay; what you finish shows up here.'));
+
+    const fitN = counts.fit || 0;
+    if (fitN) on++;
+    list.appendChild(conn('128bitfit', fitN ? 'ok' : 'off', fitN
+      ? `${plural(fitN, 'workout')} loaded.`
+      : 'In 128bitfit: Settings → 128bit family, sign in with this account and switch on Workouts.'));
+
+    const hN = counts.health || 0;
+    if (hN) on++;
+    list.appendChild(conn('Google Health (Health Connect)', hN ? 'ok' : 'off', (hN ? `${plural(hN, 'day')} of totals loaded. ` : '') +
+      'Health Connect only lives on your phone (Google has no web API for it), so it comes through 128bitfit: Settings → 128bit family → Daily Health Connect totals. Steps, sleep, resting heart rate, active calories and distance; never weight.'));
+
+    const tr = status.trakt || { st: 'off', msg: 'Checking…' };
+    if (tr.st === 'ok') on++;
+    const trExtra = el('div');
+    trExtra.appendChild(field('Trakt Client ID (only if asked above)', prefs.traktClientId, (v) => { prefs.traktClientId = v || undefined; savePrefs(); refreshExternal(); }));
+    list.appendChild(conn('Trakt', tr.st, tr.msg, trExtra));
+
+    const hc = status.hardcover || { st: 'off', msg: 'Checking…' };
+    if (hc.st === 'ok') on++;
+    list.appendChild(conn('Hardcover', hc.st, hc.msg,
+      field('Own Hardcover token (optional; stays in this browser)', prefs.hardcoverToken, (v) => { prefs.hardcoverToken = v || undefined; savePrefs(); refreshExternal(); }, true)));
+
+    list.appendChild(renderKeys());
+    $('conn-state').textContent = `${on} connected`;
+  }
+
+  // Any other app: Zapier, IFTTT, Tasker, iOS Shortcuts, Home Assistant, a script…
+  function renderKeys() {
+    const keys = status.keys;
+    const ok = Array.isArray(keys) && keys.length > 0;
+    const box = el('div');
+    const endpoint = acct.url + '/rest/v1/rpc/log_events_with_key';
+    if (newKey) {
+      box.appendChild(el('p', null, 'Your new key. Copy it now: it isn’t shown again.'));
+      box.appendChild(el('pre', 'mono', newKey));
+    }
+    box.appendChild(el('pre', 'mono',
+      `POST ${endpoint}\napikey: ${acct.key.slice(0, 12)}…  (your anon key)\nContent-Type: application/json\n\n` +
+      `{"ingest_key": "${newKey || '128bit_…'}",\n "events": [{"app": "custom", "type": "habit.completed",\n   "data": {"tracker": "Water", "value": 1, "unit": "glass"}}]}`));
+    box.appendChild(el('p', null, 'Add an "id" to an event to update it later (same id replaces it); leave it out and each call adds a new one. "at" is optional (ms since 1970, default now). Any type works; see docs/EVENTS.md for the ones with icons.'));
+    if (Array.isArray(keys)) {
+      for (const k of keys) {
+        const row = el('div', 'key');
+        row.appendChild(el('span', null, `${k.label || 'Key'} · made ${new Date(k.created).toLocaleDateString()}`));
+        const rm = el('button', 'ghost', 'Revoke');
+        rm.type = 'button';
+        rm.onclick = async () => {
+          if (!confirm('Revoke this key? Anything using it stops posting.')) return;
+          try { await rpc('delete_family_key', { key_id: k.id }); } catch (e) { alert(e.message); }
+          newKey = null; await loadKeys(); render();
+        };
+        row.appendChild(rm);
+        box.appendChild(row);
+      }
+    } else if (keys && keys.error) {
+      box.appendChild(el('p', 'err', keys.error));
+    }
+    const make = el('button', 'ghost mt', 'New key');
+    make.type = 'button';
+    make.onclick = async () => {
+      const label = prompt('What is this key for? (e.g. Tasker, Zapier)', '');
+      if (label === null) return;
+      try { newKey = await rpc('create_family_key', { key_label: label }); } catch (e) { alert(e.message); }
+      await loadKeys(); render();
+      $('connections').open = true;
+    };
+    const row = el('div', 'row');
+    row.appendChild(make);
+    box.appendChild(row);
+    return conn('Any app (Zapier, Tasker, Shortcuts, IFTTT, scripts)', ok ? 'ok' : 'off',
+      'Anything that can send a web request can post to your timeline with a personal key.', box);
+  }
+
+  // ---------- Logging here ----------
+
+  async function logIt(entry) {
+    const err = $('quick-err');
+    err.hidden = true;
+    const e = {
+      id: 'tracker-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8),
+      app: 'tracker', type: 'habit.completed', at: Date.now(),
+      data: { tracker: entry.tracker }
+    };
+    if (entry.value != null) { e.data.value = entry.value; if (entry.unit) e.data.unit = entry.unit; }
+    try {
+      await rpc('log_events', { events: [e] });
+    } catch (x) {
+      err.textContent = x.message; err.hidden = false; return false;
+    }
+    feed.unshift(e);
+    const key = (r) => join(r.tracker.toLowerCase(), r.value, r.unit);
+    prefs.recent = [entry, ...(prefs.recent || []).filter((r) => key(r) !== key(entry))].slice(0, 8);
+    savePrefs();
+    render();
+    return true;
+  }
+
+  async function removeLogged(e) {
+    if (!confirm('Delete “' + describe(e).what + '”?')) return;
+    try {
+      await rpc('delete_event', { event_id: e.id });
+      feed = feed.filter((f) => f.id !== e.id);
+      render();
+    } catch (x) { alert(x.message); }
+  }
+
+  $('quick').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const what = $('what').value.trim();
+    if (!what) return;
+    // "2 glasses" or "8" → value + unit
+    const m = /^\s*(-?\d+(?:[.,]\d+)?)\s*(.*)$/.exec($('amount').value);
+    const entry = { tracker: what };
+    if (m) { entry.value = Number(m[1].replace(',', '.')); if (m[2]) entry.unit = m[2].trim(); }
+    if (await logIt(entry)) { $('what').value = ''; $('amount').value = ''; }
+  });
+
+  // ---------- Sign-in and start ----------
+
+  async function refreshExternal() {
+    await Promise.all([loadTrakt(), loadHardcover()]);
+    render();
   }
 
   function show() {
-    var signedIn = !!(acct && acct.refresh);
+    const signedIn = !!(acct && acct.refresh);
     $('signin').hidden = signedIn;
     $('who').hidden = !signedIn;
-    $('feed').hidden = !signedIn;
+    $('app').hidden = !signedIn;
     if (!signedIn) {
       if (acct) { $('url').value = acct.url || ''; $('key').value = acct.key || ''; }
       return;
     }
     $('email').textContent = acct.email || '';
-    events = []; lastDay = null; $('feed').textContent = '';
-    page();
+    feed = []; feedDone = false; ext = { trakt: [], hardcover: [] }; status = { trakt: null, hardcover: null, keys: null }; newKey = null;
+    loadFeed();
+    loadKeys().then(render);
+    loadPlay().then(refreshExternal);
   }
 
-  $('signin').addEventListener('submit', function (e) {
+  $('signin').addEventListener('submit', async (e) => {
     e.preventDefault();
-    var url = $('url').value.trim().replace(/\/+$/, '');
-    var key = $('key').value.trim();
-    var err = $('signin-err');
+    const url = $('url').value.trim().replace(/\/+$/, '');
+    const key = $('key').value.trim();
+    const err = $('signin-err');
     err.hidden = true;
     if (!/^https:\/\/[^/]+$/.test(url)) { err.textContent = 'The Project URL looks like https://abcd1234.supabase.co'; err.hidden = false; return; }
-    auth(url, key, 'token?grant_type=password', { email: $('mail').value.trim(), password: $('pass').value })
-      .then(function (j) { $('pass').value = ''; save(withSession({ url: url, key: key }, j)); show(); })
-      .catch(function (x) { err.textContent = x.message; err.hidden = false; });
+    try {
+      const j = await auth(url, key, 'token?grant_type=password', { email: $('mail').value.trim(), password: $('pass').value });
+      $('pass').value = '';
+      save(withSession({ url, key }, j));
+      show();
+    } catch (x) { err.textContent = x.message; err.hidden = false; }
   });
 
-  $('signout').addEventListener('click', function () {
-    var a = acct;
-    token().then(function (t) {
-      return fetch(a.url + '/auth/v1/logout', { method: 'POST', headers: { apikey: a.key, Authorization: 'Bearer ' + t } });
-    }).catch(function () {});
+  $('signout').addEventListener('click', () => {
+    const a = acct;
+    token().then((t) => fetch(a.url + '/auth/v1/logout', { method: 'POST', headers: { apikey: a.key, Authorization: 'Bearer ' + t } })).catch(() => {});
     // Keep the project so signing back in is just email + password.
     save({ url: a.url, key: a.key });
     show();
   });
 
-  $('more').addEventListener('click', page);
+  $('more').addEventListener('click', loadFeed);
 
   show();
 })();

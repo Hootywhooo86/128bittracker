@@ -7,30 +7,33 @@ Part of the 128bit family.
 
 > Product direction is Daniel's call — this README is a starter brief so
 > Carlos (Claude Code) has something concrete to react to. The landing page
-> is live, and so is the first slice of the family timeline (below); the
-> rest of the app is unstarted.
+> is live, and so is the family timeline (below); the rest of the app
+> (trackers, streaks, stats) is unstarted.
 
-## Connected: 128bitPlay → timeline
+## Connected: everything → one timeline
 
-[`timeline.html`](timeline.html) is a working, web-first family timeline. It
-signs in to the user's own Supabase project (the one 128bitPlay's
-**Settings → Account** uses) and lists every event in the family feed,
-newest first, grouped by day, with **Load older**.
+[`timeline.html`](timeline.html) is a working, web-first timeline. It signs in to the user's
+own Supabase project and shows, newest first and grouped by day, with filters per source:
 
-- **128bitPlay** posts `book.finished`, `movie.watched`, `episode.watched`
-  and `chapter.read` as you finish things (queued on the phone, sent when
-  signed in).
-- The feed is the `family_events` table plus two RPCs, `log_events` and
-  `get_events`, created by 128bitPlay's setup SQL. Projects set up earlier:
-  run that SQL again; it only adds what's missing.
-- Schema: [`docs/EVENTS.md`](docs/EVENTS.md) and
-  [`src/events.ts`](src/events.ts). Tracker's own `habit.completed` /
-  `streak.*` and the sibling apps' types are listed there as planned; the
-  timeline already shows unknown types, so siblings can start posting
-  whenever.
+| Source | How it gets here |
+|---|---|
+| **128bitPlay** | Books, movies, episodes, comic chapters, posted to the family feed when signed in. |
+| **128bitfit** | Workouts (strength and cardio), opt-in under its Settings → 128bit family. |
+| **Google Health** | Daily Health Connect totals (steps, sleep, resting HR, active kcal, distance; never weight), opt-in through 128bitfit. Health Connect has no web API, so the phone sends them. |
+| **Trakt** | Read directly, reusing 128bitPlay's Trakt sign-in. |
+| **Hardcover** | Books marked Read, reusing 128bitPlay's token (or paste one). |
+| **Log anything** | Two taps: type it (plus an amount) or tap a recent chip. Posts `habit.completed`. |
+| **Any app** | Zapier, IFTTT, Tasker, iOS Shortcuts, scripts: a personal key and one HTTP POST. |
 
-Open `timeline.html` from GitHub Pages (or any static host) or locally,
-then enter the project URL, anon key, email and password.
+Duplicates (a Play episode that Trakt also scrobbled, a book Hardcover also has) show once,
+tagged "also on Trakt".
+
+- Feed SQL: [`supabase/family.sql`](supabase/family.sql). 128bitPlay's setup SQL includes it;
+  projects set up earlier just run it again.
+- Schema and API: [`docs/EVENTS.md`](docs/EVENTS.md), types in [`src/events.ts`](src/events.ts).
+
+Open `timeline.html` from GitHub Pages (or any static host) or locally, then enter the project
+URL, anon key, email and password.
 
 ## Concept (starter — Daniel decides)
 

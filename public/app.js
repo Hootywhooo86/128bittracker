@@ -1,6 +1,7 @@
 // 128bit Tracker app — vanilla JS. On the web it talks to the server's
 // /api/v1; in the Android app the same API runs on-device (see transport.js).
 import { request, platform } from './transport.js';
+import { trophySvg, TROPHY_KINDS } from './trophy-art.js';
 
 const APP_COLORS = {
   '128bittracker': '#2dd4bf', '128bitplay': '#ff5d8f', '128bitfit': '#fb923c', '128bitgold': '#facc15',
@@ -20,7 +21,25 @@ async function api(method, path, body) {
   const { status, data } = await request(method, path, body);
   if (status === 401 && path !== '/session') { showLogin(); throw new Error('login required'); }
   if (status >= 400) throw new Error(data?.error || `HTTP ${status}`);
+  if (data?.new_trophy) setTimeout(() => celebrate(data.new_trophy), 350);
   return data;
+}
+
+// ---------- trophies ----------
+const TROPHY_NAMES = { controller: 'GOLDEN CONTROLLER', vhs: 'GOLDEN VHS', tv: 'GOLDEN TV', anime: 'GOLDEN IDOL' };
+const TROPHY_FOR = { controller: '100% a game', vhs: 'Finish a movie', tv: 'Finish a show season', anime: 'Finish an anime series' };
+
+function celebrate(t) {
+  const root = document.createElement('div');
+  root.className = 'celebrate';
+  root.setAttribute('role', 'status');
+  root.innerHTML = `<div class="celebrate-card"><div class="celebrate-art">${trophySvg(t.kind, 144)}</div>
+    <div class="px celebrate-name">${TROPHY_NAMES[t.kind] ?? 'TROPHY'} EARNED</div><div class="celebrate-title">${esc(t.title)}</div>
+    <button class="btn teal">NICE!</button></div>`;
+  document.body.append(root);
+  const close = () => root.remove();
+  root.addEventListener('click', close);
+  setTimeout(close, 6000);
 }
 
 let toastTimer;
@@ -285,9 +304,9 @@ function tile(i) {
   const pct = i.progress_total ? Math.min(100, Math.round((i.progress / i.progress_total) * 100)) : null;
   return `<button class="tile" data-item="${i.id}">
     <div class="cover">${i.cover_url ? `<img src="${esc(i.cover_url)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span aria-hidden="true">${esc(i.icon)}</span>`}
-      <span class="status ${i.status}">${STATUS_LABEL[i.status]}</span>${i.source !== 'manual' ? `<span class="src">${esc(i.source.replace('128bit', ''))}</span>` : ''}</div>
+      <span class="status ${i.status}">${STATUS_LABEL[i.status]}</span>${i.trophy_kind ? `<span class="trophy-badge" title="${TROPHY_NAMES[i.trophy_kind]}">${trophySvg(i.trophy_kind, 30)}</span>` : ''}${i.source !== 'manual' ? `<span class="src">${esc(i.source.replace('128bit', ''))}</span>` : ''}</div>
     <div class="tile-body"><div class="tile-title">${esc(i.title)}</div>
-      <div class="tile-sub">${esc(i.icon)} ${esc(i.type)}${i.creator ? ' · ' + esc(i.creator) : ''}${i.year ? ' · ' + i.year : ''}</div>
+      <div class="tile-sub">${esc(i.icon)} ${esc(i.type)}${i.meta?.season ? ' · S' + esc(i.meta.season) : ''}${i.creator ? ' · ' + esc(i.creator) : ''}${i.year ? ' · ' + i.year : ''}</div>
       ${pct != null ? `<div class="mini-bar" title="${pct}%"><span style="width:${pct}%"></span></div>` : ''}
       ${i.rating ? `<div class="stars"><span style="font-family:var(--sans)">★</span> ${i.rating}/10</div>` : ''}</div>
   </button>`;
@@ -305,12 +324,13 @@ function itemModal(item = {}) {
       <div class="field"><label for="if-year">YEAR</label><input class="input" id="if-year" name="year" type="number" min="0" value="${esc(item.year ?? '')}"></div>
       <div class="field"><label for="if-total">TOTAL (PAGES / EPISODES)</label><input class="input" id="if-total" name="progress_total" type="number" min="0" step="any" value="${esc(item.progress_total ?? '')}"></div>
       <div class="field"><label for="if-cover">COVER IMAGE URL</label><input class="input" id="if-cover" name="cover_url" type="url" value="${esc(item.cover_url ?? '')}" placeholder="https://…"></div>
+      <div class="field"><label for="if-season">SEASON (SHOWS)</label><input class="input" id="if-season" name="season" type="number" min="0" value="${esc(item.meta?.season ?? '')}" placeholder="1"></div>
     </div>
     <button class="btn teal">${editing ? 'SAVE' : 'ADD'}</button></form>`, (m, close) => {
     m.querySelector('form').addEventListener('submit', guard(async (e) => {
       e.preventDefault();
-      const f = formData(e.target);
-      const body = { ...f, year: f.year || null, progress_total: f.progress_total || null, cover_url: f.cover_url || null, creator: f.creator || null };
+      const { season, ...f } = formData(e.target);
+      const body = { ...f, year: f.year || null, progress_total: f.progress_total || null, cover_url: f.cover_url || null, creator: f.creator || null, meta: { season: season ? Number(season) : null } };
       const saved = editing ? await api('PATCH', `/items/${item.id}`, body) : await api('POST', '/items', body);
       close(); toast(editing ? 'SAVED' : 'ADDED'); await renderLibrary();
       if (editing) itemDetail(await api('GET', `/items/${saved.id}`));
@@ -321,7 +341,10 @@ function itemModal(item = {}) {
 function itemDetail(i) {
   const unit = META.item_types[i.type]?.unit ?? '';
   modal(`${i.icon} ${i.title}`, `
-    <p class="muted" style="font-size:13px;margin:-8px 0 16px">${esc(i.type)}${i.creator ? ' · ' + esc(i.creator) : ''}${i.year ? ' · ' + i.year : ''}${i.source !== 'manual' ? ' · synced from ' + esc(i.source) : ''}</p>
+    <p class="muted" style="font-size:13px;margin:-8px 0 16px">${esc(i.type)}${i.meta?.season ? ' · Season ' + esc(i.meta.season) : ''}${i.creator ? ' · ' + esc(i.creator) : ''}${i.year ? ' · ' + i.year : ''}${i.source !== 'manual' ? ' · synced from ' + esc(i.source) : ''}</p>
+    ${i.trophy ? `<div class="trophy-row">${trophySvg(i.trophy.kind, 56)}<div><div class="px" style="font-size:9px;color:#ffc72c;line-height:1.7">${TROPHY_NAMES[i.trophy.kind]}</div><div class="muted" style="font-size:12px">Earned ${new Date(i.trophy.earned_at).toLocaleDateString()}</div></div></div>` : ''}
+    ${i.type === 'game' ? `<div class="row" style="margin-bottom:14px">${i.meta?.achievements ? `<span class="muted" style="font-size:13px">🏅 ${i.meta.achievements.unlocked}/${i.meta.achievements.total} achievements</span>` : ''}
+      ${i.trophy ? '' : `<button class="btn ghost small" data-perfect="${i.meta?.perfect ? '0' : '1'}">${i.meta?.perfect ? 'UNMARK 100%' : '★ MARK 100%'}</button>`}</div>` : ''}
     <div class="chips" role="group" aria-label="Status">${META.statuses.map((s) => `<button class="chip" data-set-status="${s}" aria-pressed="${i.status === s}">${STATUS_LABEL[s].toLowerCase()}</button>`).join('')}</div>
     <div class="field"><label>RATING</label><div class="rating">${Array.from({ length: 10 }, (_, n) => `<button data-rate="${n + 1}" class="${i.rating && n < i.rating ? 'on' : ''}" aria-label="Rate ${n + 1}">${n + 1}</button>`).join('')}</div></div>
     <h2 class="sec">LOG A SESSION</h2>
@@ -339,6 +362,7 @@ function itemDetail(i) {
     const reopen = async (patch) => { await api('PATCH', `/items/${i.id}`, patch); close(); renderLibrary(); itemDetail(await api('GET', `/items/${i.id}`)); };
     m.querySelectorAll('[data-set-status]').forEach((b) => b.addEventListener('click', guard(() => reopen({ status: b.dataset.setStatus }))));
     m.querySelectorAll('[data-rate]').forEach((b) => b.addEventListener('click', guard(() => reopen({ rating: Number(b.dataset.rate) }))));
+    m.querySelector('[data-perfect]')?.addEventListener('click', guard(() => reopen({ meta: { perfect: m.querySelector('[data-perfect]').dataset.perfect === '1' ? true : null } })));
     m.querySelector('[data-session]').addEventListener('submit', guard(async (e) => {
       e.preventDefault();
       const f = formData(e.target);
@@ -412,7 +436,7 @@ function describe(e) {
 // ---------- STATS ----------
 async function renderStats() {
   const year = new Date().getFullYear();
-  const [s, pixels] = await Promise.all([api('GET', '/stats'), api('GET', `/stats/year/${year}`)]);
+  const [s, pixels, tro] = await Promise.all([api('GET', '/stats'), api('GET', `/stats/year/${year}`), api('GET', '/trophies')]);
   const lib = Object.entries(s.library).sort((a, b) => b[1].total - a[1].total);
   const max = Math.max(1, ...pixels.days.map((d) => d.logs + d.events));
   const lvl = (n) => (n === 0 ? '' : n / max > 0.75 ? 'l4' : n / max > 0.4 ? 'l3' : n / max > 0.15 ? 'l2' : 'l1');
@@ -421,6 +445,11 @@ async function renderStats() {
   view.innerHTML = `
     <h1 class="view-title"><span class="o">STATS</span></h1>
     <p class="view-sub">Numbers, not guilt.</p>
+    <h2 class="sec" style="margin-top:6px">TROPHY SHELF</h2>
+    <div class="shelf">${TROPHY_KINDS.map((k) => `<div class="shelf-slot ${tro.counts[k] ? 'won' : ''}">${trophySvg(k, 64, { locked: !tro.counts[k] })}
+      <div class="px shelf-n">×${tro.counts[k]}</div><div class="shelf-for">${TROPHY_FOR[k]}</div></div>`).join('')}</div>
+    ${tro.trophies.length ? `<div class="shelf-list">${tro.trophies.slice(0, 24).map((t) => `<div class="shelf-item" title="${esc(TROPHY_NAMES[t.kind])} · ${new Date(t.earned_at).toLocaleDateString()}">${trophySvg(t.kind, 36)}<span>${esc(t.title)}</span></div>`).join('')}</div>` : '<p class="muted" style="font-size:13px;margin:10px 0 0">Finish a movie, a show season or an anime, or 100% a game, to earn your first golden trophy.</p>'}
+    <h2 class="sec">THE NUMBERS</h2>
     <div class="kpis">
       ${kpi('DONE TODAY', `${s.habits.done_today}/${s.habits.count}`, 'habits')}
       ${kpi('BEST LIVE STREAK', `🔥${s.habits.best_current_streak}`, `all-time best ${s.habits.best_ever_streak}`)}

@@ -1,6 +1,7 @@
 // Stats: the honest numbers. No guilt, just the record.
 import { toDay, addDays } from './dates.js';
 import { listTrackers } from './trackers.js';
+import { trophyCounts } from './trophies.js';
 
 export function overview(ctx) {
   const db = ctx.db;
@@ -35,6 +36,7 @@ export function overview(ctx) {
     finished_this_year: finishedThisYear,
     average_rating: avgRating == null ? null : Math.round(avgRating * 10) / 10,
     events_total: db.prepare('SELECT COUNT(*) AS n FROM events').get().n,
+    trophies: trophyCounts(ctx),
   };
 }
 

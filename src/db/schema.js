@@ -134,6 +134,16 @@ export const MIGRATIONS = [
   );
   CREATE INDEX backups_device ON backups(device, id DESC);
   `,
+  // 4 — golden trophies (kept when the item is deleted: you still earned it)
+  `
+  CREATE TABLE trophies (
+    id         INTEGER PRIMARY KEY,
+    item_id    INTEGER UNIQUE,
+    kind       TEXT NOT NULL,
+    title      TEXT NOT NULL,
+    earned_at  TEXT NOT NULL
+  );
+  `,
 ];
 
 export function migrate(db) {

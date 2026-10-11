@@ -6,7 +6,7 @@ import { tx } from '../db/tx.js';
 export const EXPORT_FORMAT = '128bittracker-export';
 
 // Parents before children, so foreign keys hold on insert.
-const TABLES = ['trackers', 'logs', 'freezes', 'items', 'sessions', 'collections', 'collection_items', 'events'];
+const TABLES = ['trackers', 'logs', 'freezes', 'items', 'sessions', 'collections', 'collection_items', 'events', 'trophies'];
 
 export function exportAll(db) {
   const all = (t) => db.prepare(`SELECT * FROM ${t}`).all();
@@ -22,6 +22,7 @@ export function exportAll(db) {
     collections: all('collections'),
     collection_items: all('collection_items'),
     events: all('events').map(({ payload, ...e }) => ({ ...e, data: JSON.parse(payload) })),
+    trophies: all('trophies'),
   };
 }
 

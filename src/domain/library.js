@@ -2,6 +2,7 @@
 // Games, shows, movies, books, anime, manga, podcasts, music — or your own type.
 import { HttpError, notFound } from '../api/errors.js';
 import { tx } from '../db/tx.js';
+import { checkTrophy } from './trophies.js';
 
 export const ITEM_TYPES = {
   game:    { icon: '🎮', unit: '%' },
@@ -76,6 +77,7 @@ export function getItem(ctx, id) {
   const item = hydrate(getRow(ctx, id));
   item.sessions = ctx.db.prepare('SELECT * FROM sessions WHERE item_id = ? ORDER BY at DESC LIMIT 50').all(id);
   item.minutes_total = ctx.db.prepare('SELECT COALESCE(SUM(minutes),0) AS m FROM sessions WHERE item_id = ?').get(id).m;
+  item.trophy = ctx.db.prepare('SELECT kind, title, earned_at FROM trophies WHERE item_id = ?').get(id) ?? null;
   item.collections = ctx.db
     .prepare('SELECT c.id, c.name FROM collections c JOIN collection_items ci ON ci.collection_id = c.id WHERE ci.item_id = ?')
     .all(id);
@@ -101,7 +103,7 @@ export function listItems(ctx, { type, status, q, collection, sort = 'updated', 
   const n = Math.min(Math.max(Number(limit) || 100, 1), 500);
   const o = Math.max(Number(offset) || 0, 0);
   return ctx.db
-    .prepare(`SELECT i.* FROM items i ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY ${order} LIMIT ${n} OFFSET ${o}`)
+    .prepare(`SELECT i.*, (SELECT kind FROM trophies t WHERE t.item_id = i.id) AS trophy_kind FROM items i ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY ${order} LIMIT ${n} OFFSET ${o}`)
     .all(...args)
     .map(hydrate);
 }
@@ -123,12 +125,24 @@ export function createItem(ctx, input, { source = 'manual', externalId = null } 
   const item = getItem(ctx, Number(res.lastInsertRowid));
   ctx.events.emit('item.added', ref(item), { title: `${item.icon} Added ${item.title}` });
   if (STATUS_EVENT[status]) emitStatus(ctx, item, status);
-  return item;
+  return withTrophy(ctx, item);
+}
+
+/** Award any trophy the item just earned; flags it as `new_trophy` for the UI. */
+function withTrophy(ctx, item) {
+  const earned = checkTrophy(ctx, item);
+  return earned ? { ...item, trophy: earned, new_trophy: earned } : item;
 }
 
 export function updateItem(ctx, id, input) {
   const before = getRow(ctx, id);
   const v = validate(input, true);
+  // meta is merged, so one feature (season, 100%, synced achievements) never wipes another's keys.
+  if (v.meta !== undefined) {
+    const merged = { ...JSON.parse(before.meta), ...JSON.parse(v.meta) };
+    for (const k of Object.keys(merged)) if (merged[k] === null) delete merged[k];
+    v.meta = JSON.stringify(merged);
+  }
   const now = new Date().toISOString();
   if (v.status && v.status !== before.status) {
     if (v.status === 'active' && !before.started_at) v.started_at = now;
@@ -149,11 +163,13 @@ export function updateItem(ctx, id, input) {
   if (v.rating != null && v.rating !== before.rating) {
     ctx.events.emit('item.rated', { ...ref(item), rating: v.rating }, { title: `⭐ Rated ${item.title} ${v.rating}/10` });
   }
-  return item;
+  return withTrophy(ctx, item);
 }
 
 export function deleteItem(ctx, id) {
   getRow(ctx, id);
+  // The trophy stays on the shelf, detached from the deleted item.
+  ctx.db.prepare('UPDATE trophies SET item_id = NULL WHERE item_id = ?').run(id);
   ctx.db.prepare('DELETE FROM items WHERE id = ?').run(id);
 }
 
@@ -183,7 +199,7 @@ export function addSession(ctx, id, input = {}, { source = 'manual', at } = {}) 
   const what = minutes ? `${Math.round(minutes)} min` : `progress ${progress}`;
   ctx.events.emit('item.session', { ...ref(updated), minutes, progress }, { title: `${updated.icon} ${updated.title} · ${what}`, occurred_at: when });
   if (item.status !== updated.status) emitStatus(ctx, updated, updated.status);
-  return updated;
+  return withTrophy(ctx, updated);
 }
 
 function ref(item) {

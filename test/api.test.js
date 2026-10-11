@@ -199,3 +199,46 @@ test('device backups: upload, keep 10, fetch latest', async () => {
   assert.equal(latest.exported_at, '2026-01-12T00:00:00Z');
   assert.equal((await call('PUT', '/api/v1/sync/backup', { hello: 1 }, ph)).status, 400);
 });
+
+test('golden trophies: one per finished movie / show season / anime, 100% games', async () => {
+  const movie = (await call('POST', '/api/v1/items', { type: 'movie', title: 'Alien' })).body;
+  assert.equal(movie.trophy, null);
+  const done = (await call('PATCH', `/api/v1/items/${movie.id}`, { status: 'done' })).body;
+  assert.equal(done.new_trophy.kind, 'vhs');
+  // Reopening and finishing again doesn't award a second one.
+  await call('PATCH', `/api/v1/items/${movie.id}`, { status: 'active' });
+  const again = (await call('PATCH', `/api/v1/items/${movie.id}`, { status: 'done' })).body;
+  assert.equal(again.new_trophy, undefined);
+  assert.equal(again.trophy.kind, 'vhs');
+
+  const season = (await call('POST', '/api/v1/items', { type: 'show', title: 'Severance', status: 'done', meta: { season: 2 } })).body;
+  assert.equal(season.new_trophy.kind, 'tv');
+  assert.match(season.new_trophy.title, /Season 2/);
+  const anime = (await call('POST', '/api/v1/items', { type: 'anime', title: 'Frieren', status: 'done' })).body;
+  assert.equal(anime.new_trophy.kind, 'anime');
+  const book = (await call('POST', '/api/v1/items', { type: 'book', title: 'Dune 2', status: 'done' })).body;
+  assert.equal(book.new_trophy, undefined);
+
+  // Games need 100%, not just "done".
+  const game = (await call('POST', '/api/v1/items', { type: 'game', title: 'Celeste', status: 'done', meta: { achievements: { unlocked: 30, total: 32 } } })).body;
+  assert.equal(game.new_trophy, undefined);
+  const perfect = (await call('PATCH', `/api/v1/items/${game.id}`, { meta: { achievements: { unlocked: 32, total: 32 } } })).body;
+  assert.equal(perfect.new_trophy.kind, 'controller');
+  const manual = (await call('POST', '/api/v1/items', { type: 'game', title: 'Tetris', meta: { perfect: true } })).body;
+  assert.equal(manual.new_trophy.kind, 'controller');
+
+  // meta merges: setting achievements kept the season-less meta intact elsewhere.
+  const s2 = (await call('PATCH', `/api/v1/items/${season.id}`, { meta: { note: 'x' } })).body;
+  assert.equal(s2.meta.season, 2);
+
+  const { body: shelf } = await call('GET', '/api/v1/trophies');
+  assert.deepEqual(shelf.counts, { controller: 2, vhs: 1, tv: 1, anime: 1 });
+  const { body: evs } = await call('GET', '/api/v1/events?type=trophy.earned');
+  assert.equal(evs.length, 5);
+
+  // Deleting the item keeps the trophy on the shelf.
+  await call('DELETE', `/api/v1/items/${movie.id}`);
+  assert.equal((await call('GET', '/api/v1/trophies')).body.counts.vhs, 1);
+  const { body: list } = await call('GET', '/api/v1/items?type=anime');
+  assert.equal(list[0].trophy_kind, 'anime');
+});

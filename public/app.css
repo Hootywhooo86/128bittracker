@@ -171,6 +171,27 @@ table.lib-stats .n{text-align:right;font-variant-numeric:tabular-nums}
 .sessions{font-size:13px;color:var(--muted);max-height:160px;overflow-y:auto;margin-top:6px}
 .sessions div{padding:5px 0;border-bottom:1px solid var(--line)}
 
+/* ---------- trophies ---------- */
+.trophy-badge{position:absolute;right:4px;bottom:4px;filter:drop-shadow(0 0 6px rgba(255,199,44,.6))}
+.trophy-row{display:flex;gap:12px;align-items:center;background:rgba(255,199,44,.07);border:3px solid #7a4a00;padding:10px 12px;margin-bottom:14px}
+.shelf{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;background:linear-gradient(180deg,var(--panel),#100f22);border:3px solid var(--line);border-bottom:6px solid #7a4a00;padding:14px 10px 10px}
+@media (max-width:520px){.shelf{grid-template-columns:repeat(2,1fr)}}
+.shelf-slot{display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;padding:6px 2px}
+.shelf-slot.won svg{filter:drop-shadow(0 0 8px rgba(255,199,44,.55))}
+.shelf-n{font-size:10px;color:var(--muted)}
+.shelf-slot.won .shelf-n{color:#ffc72c}
+.shelf-for{font-size:11px;color:var(--muted);line-height:1.4}
+.shelf-list{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.shelf-item{display:flex;align-items:center;gap:6px;background:var(--panel);border:2px solid var(--line);padding:4px 10px 4px 4px;font-size:12px;max-width:100%}
+.shelf-item span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.celebrate{position:fixed;inset:0;z-index:70;background:rgba(5,5,12,.82);display:grid;place-items:center;padding:16px}
+.celebrate-card{text-align:center;background:var(--panel);border:3px solid #ffc72c;box-shadow:8px 8px 0 var(--shadow),0 0 40px rgba(255,199,44,.25);padding:22px 20px;max-width:340px;width:100%}
+.celebrate-art{animation:trophy-in .6s steps(6) both}
+.celebrate-art svg{filter:drop-shadow(0 0 14px rgba(255,199,44,.7))}
+.celebrate-name{font-size:11px;color:#ffc72c;margin:14px 0 8px;line-height:1.7}
+.celebrate-title{font-weight:700;margin-bottom:16px;overflow-wrap:anywhere}
+@keyframes trophy-in{0%{transform:scale(.2) rotate(-12deg);opacity:0}70%{transform:scale(1.15) rotate(3deg);opacity:1}100%{transform:scale(1)}}
+
 /* ---------- update banner ---------- */
 .update{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--panel);border:3px solid var(--teal);
   box-shadow:5px 5px 0 var(--shadow);padding:12px 14px;margin:8px 0 4px}

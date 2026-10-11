@@ -804,7 +804,7 @@ async function renderSync() {
     <div id="platforms"></div>
     <h2 class="sec">MOVIE, TV &amp; GAME DATA</h2>
     <div id="services"></div>
-    <h2 class="sec">SERVER</h2>
+    <h2 class="sec">TRACKER SERVER (OPTIONAL)</h2>
     <form id="sync-form">
       <div class="field"><label for="sy-url">SERVER URL</label><input class="input" id="sy-url" name="server_url" type="url" inputmode="url" placeholder="https://tracker.example.com" value="${esc(s.server_url ?? '')}"></div>
       <div class="field"><label for="sy-key">SYNC KEY</label><input class="input" id="sy-key" name="api_key" autocomplete="off" placeholder="${s.has_key ? 'saved (tb128_…) — paste to replace' : 'tb128_…'}"></div>

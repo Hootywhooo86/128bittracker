@@ -151,3 +151,37 @@ The Android app uses these endpoints. Other apps don't need them.
 | GET | `/sync/backups` | list this device's backups (no data) |
 | GET | `/sync/backups/latest` · `/sync/backups/:id` | the export, ready for `/import` |
 | POST | `/sync/outbox` | array of the phone's own events (`source: "128bittracker"`). Stored and sent to webhooks, idempotent by `id` |
+
+## Library helpers (scope `read` / `write`)
+
+| Method | Path | |
+|---|---|---|
+| GET | `/search?type=book&q=dune` | title search; results carry `cover_url`, `year`, `creator`, `progress_total`, `meta` to pass when creating the item |
+| GET | `/search/seasons?provider=tvmaze&id=44933` | a show's seasons with episode counts |
+| POST | `/imports` | `{ text, filename }`: a Goodreads / StoryGraph / Letterboxd CSV or MyAnimeList XML → `{ format, added, updated, trophies }` |
+| GET | `/calendar` | coming up: `[{ kind: episode\|release, date, title, detail, item_id }]` (`?refresh=1` skips the 6 h cache) |
+| GET | `/trophies` | `{ trophies, counts, kinds }`. Items that earn one return `new_trophy`; a `trophy.earned` event is emitted |
+
+## Game platforms and data services (scope `write`)
+
+| Method | Path | |
+|---|---|---|
+| GET | `/connectors` | Steam / Xbox / PlayStation status (secrets are never returned) |
+| PUT | `/connectors/:name` | save fields (`api_key`, `profile`, `npsso`, `accept_risk`) |
+| POST | `/connectors/:name/sync` | `{ games, added, updated, minutes, perfect, new_trophies }` |
+| DELETE | `/connectors/:name` | forget the credentials (games stay) |
+| GET / PUT | `/services`, `/services/:name` | TMDB (`token`) and IGDB (`client_id`, `client_secret`) keys |
+
+## 128bit family account (scope `write`)
+
+| Method | Path | |
+|---|---|---|
+| GET | `/family` | `{ signed_in, email, last_sync_at, pulled_total, pushed_total }` |
+| POST | `/family/signin` · `/family/signup` | `{ email, password }` (optional `url`/`key` for your own Supabase project) |
+| POST | `/family/sync` | push Tracker's shared events, pull the family feed → `{ pulled, pushed }` |
+| POST | `/family/signout` | |
+
+Tracker shares `habit.completed`, `streak.milestone`, `streak.frozen`, `trophy.earned`,
+`item.completed`, `item.started` and `item.rated` to the feed as `app: "tracker"`. From
+128bitPlay it understands `book.finished`, `movie.watched`, `episode.watched` and
+`chapter.read`. Everything else shows on the timeline.

@@ -38,7 +38,23 @@ npm test
 | `TRACKER_SECRET` | random | signs login cookies; set it so logins survive restarts |
 | `TRACKER_CORS_ORIGINS` | none | comma-separated origins allowed to call the API from a browser |
 
-## What's in v0.1
+## What's in v0.4
+
+- **128bit family account**: sign in with the same account as 128bitPlay and
+  128bitfit. Books, movies, episodes and comics from Play and workouts from Fit
+  flow into the Library and habits, and Tracker shares streaks, trophies and
+  finished things back to the family feed.
+- **Golden trophies**: 100% a game → golden controller, finish a movie →
+  golden VHS, finish a show season → golden TV, finish an anime series →
+  golden idol. Trophy shelf on Stats.
+- **Game platforms**: Steam (official API), Xbox (OpenXBL) and PlayStation
+  (unofficial, opt-in) bring in play time, achievements and 100%s.
+- **Title search**: covers, years, creators and lengths from Open Library,
+  AniList, TVmaze, iTunes, the Steam store, plus TMDB and IGDB with keys.
+- **Imports**: Goodreads, StoryGraph, Letterboxd, MyAnimeList.
+- **Coming up**: next episodes and game release dates on the Timeline.
+
+## Earlier (v0.1–v0.3)
 
 - **Today**: habit trackers (done / count / duration / 1–5 scale), presets,
   two-tap logging, undo, a 30-day pixel strip, forgiving streaks with freezes
@@ -70,8 +86,14 @@ src/
     webhooks.js        # webhook CRUD + signed delivery (server only)
   integrations/
     index.js           # POST /events: idempotent, atomic per event
-    play.js            # 128bitplay game.* → Library
+    play.js            # 128bitPlay game.* and media events → Library
     family.js          # any event → trackers that `listen` for it
+    family-account.js  # 128bit family sign-in + family feed sync (Supabase)
+    connectors/        # Steam, Xbox (OpenXBL), PlayStation
+    metadata.js        # title search (Open Library, AniList, TVmaze, …)
+    imports.js         # Goodreads, StoryGraph, Letterboxd, MyAnimeList
+    calendar.js        # coming up: next episodes, game releases
+  domain/trophies.js   # golden trophy rules
   api/                 # router, auth; core-routes.js is shared with the phone
 public/                # the pixel app UI (vanilla JS), shared by web + Android
 mobile/                # Android app (Capacitor + sql.js), see mobile/README.md
@@ -90,22 +112,17 @@ Rules:
 
 ## Roadmap (proposed — Daniel decides)
 
-Done since v0.1: daily reminders on Android, automatic server backups with
-one-tap restore, JSON import.
+Done: reminders, backups, family account, trophies, Steam/Xbox/PlayStation,
+search, imports, calendar.
 
 Next up:
-1. **Metadata search**: look up a title and fill in cover, year and creator
-   automatically (IGDB for games, TMDB for film/TV, Open Library for books,
-   AniList for anime/manga, iTunes for podcasts).
-2. **Imports**: Goodreads / StoryGraph CSV, Letterboxd, Trakt, MyAnimeList,
-   Steam playtime, so nobody starts from zero.
-3. **Upcoming calendar**: next episodes of shows you're watching, release
-   dates for planned games.
-4. **Body & health trackers**: weight and measurements with charts (or pull
+1. **Google / Apple sign-in** for the family account in the Android app.
+2. **Trakt / Hardcover** read directly (as the family timeline already does).
+3. **Body & health trackers**: weight and measurements with charts (or pull
    from 128bitfit), sleep from phone health APIs.
-5. **Native SQLite on the phone** (swap `mobile/src/adapter.js`) once
+4. **Native SQLite on the phone** (swap `mobile/src/adapter.js`) once
    histories get large.
-6. **Play Store listing.**
+5. **Play Store listing.**
 
 Later:
 - Correlations ("you sleep better on workout days"), a Pro candidate

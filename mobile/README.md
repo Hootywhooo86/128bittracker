@@ -85,7 +85,20 @@ snapshot. The server keeps the last 10 per phone. **Sync → Restore from
 server** rebuilds a new or reset phone from the newest one. **Export / Import
 JSON** works without a server.
 
-## Connecting to 128bitplay (sync)
+## 128bit family account
+
+**Sync → 128bit family account**: sign in with the account you use in
+128bitPlay. Every 5 minutes, and when the app opens, Tracker pulls what Play
+and Fit posted to the family feed and shares its own habit completions,
+streaks, trophies and finished items. You don't need a Tracker server for this.
+
+## Game platforms
+
+**Sync → Game platforms**: Steam (Web API key + public profile), Xbox
+(OpenXBL key) and PlayStation (NPSSO, unofficial, opt-in). They sync every
+12 hours, or tap Sync now.
+
+## Connecting to a Tracker server (optional)
 
 The phone can't receive webhooks, so the Tracker **server** (`npm start` in
 the repo root, on a machine that 128bitplay can reach) acts as the hub:

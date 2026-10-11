@@ -171,6 +171,15 @@ table.lib-stats .n{text-align:right;font-variant-numeric:tabular-nums}
 .sessions{font-size:13px;color:var(--muted);max-height:160px;overflow-y:auto;margin-top:6px}
 .sessions div{padding:5px 0;border-bottom:1px solid var(--line)}
 
+/* ---------- game platforms ---------- */
+.platform{background:var(--panel);border:3px solid var(--line);margin-bottom:10px}
+.platform[open]{border-color:var(--teal)}
+.platform summary{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 14px;cursor:pointer;list-style:none}
+.platform summary::-webkit-details-marker{display:none}
+.platform-name{font-weight:800}
+.platform-state{margin-left:auto;font-size:12px}
+.platform form{padding:0 14px 14px}
+
 /* ---------- trophies ---------- */
 .trophy-badge{position:absolute;right:4px;bottom:4px;filter:drop-shadow(0 0 6px rgba(255,199,44,.6))}
 .trophy-row{display:flex;gap:12px;align-items:center;background:rgba(255,199,44,.07);border:3px solid #7a4a00;padding:10px 12px;margin-bottom:14px}

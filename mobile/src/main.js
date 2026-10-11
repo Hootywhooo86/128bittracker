@@ -18,6 +18,8 @@ device().then(({ store, sync, reminders, updates }) => {
   // Re-plan reminders on open/resume (today may be done, or a new day).
   reminders.refresh();
   App.addListener('resume', () => reminders.refresh());
+  autoSyncPlatforms();
+  App.addListener('resume', autoSyncPlatforms);
   sync.startAuto({
     onSynced: () => {
       reminders.refresh();
@@ -25,3 +27,17 @@ device().then(({ store, sync, reminders, updates }) => {
     },
   });
 });
+
+// Game platforms: refresh play time + achievements at most twice a day.
+async function autoSyncPlatforms() {
+  const { request } = await import('./transport.js');
+  const { data: list } = await request('GET', '/connectors');
+  for (const c of list ?? []) {
+    if (!c.configured || c.last_error) continue;
+    if (c.last_sync_at && Date.now() - Date.parse(c.last_sync_at) < 12 * 3600_000) continue;
+    const { status, data } = await request('POST', `/connectors/${c.name}/sync`, {});
+    if (status === 200 && (data.added || data.minutes || data.new_trophies?.length)) {
+      window.dispatchEvent(new CustomEvent('tracker:synced'));
+    }
+  }
+}

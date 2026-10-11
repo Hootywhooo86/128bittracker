@@ -108,7 +108,7 @@ export function listItems(ctx, { type, status, q, collection, sort = 'updated', 
     .map(hydrate);
 }
 
-export function createItem(ctx, input, { source = 'manual', externalId = null } = {}) {
+export function createItem(ctx, input, { source = 'manual', externalId = null, quiet = false } = {}) {
   const v = validate(input, false);
   const now = new Date().toISOString();
   const status = v.status ?? 'planned';
@@ -123,8 +123,11 @@ export function createItem(ctx, input, { source = 'manual', externalId = null } 
       status === 'active' || status === 'done' ? now : null, status === 'done' ? now : null, now, now,
     );
   const item = getItem(ctx, Number(res.lastInsertRowid));
-  ctx.events.emit('item.added', ref(item), { title: `${item.icon} Added ${item.title}` });
-  if (STATUS_EVENT[status]) emitStatus(ctx, item, status);
+  // Bulk imports (a whole Steam library) stay off the timeline; trophies still count.
+  if (!quiet) {
+    ctx.events.emit('item.added', ref(item), { title: `${item.icon} Added ${item.title}` });
+    if (STATUS_EVENT[status]) emitStatus(ctx, item, status);
+  }
   return withTrophy(ctx, item);
 }
 

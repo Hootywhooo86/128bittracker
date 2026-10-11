@@ -343,7 +343,7 @@ function itemDetail(i) {
   modal(`${i.icon} ${i.title}`, `
     <p class="muted" style="font-size:13px;margin:-8px 0 16px">${esc(i.type)}${i.meta?.season ? ' · Season ' + esc(i.meta.season) : ''}${i.creator ? ' · ' + esc(i.creator) : ''}${i.year ? ' · ' + i.year : ''}${i.source !== 'manual' ? ' · synced from ' + esc(i.source) : ''}</p>
     ${i.trophy ? `<div class="trophy-row">${trophySvg(i.trophy.kind, 56)}<div><div class="px" style="font-size:9px;color:#ffc72c;line-height:1.7">${TROPHY_NAMES[i.trophy.kind]}</div><div class="muted" style="font-size:12px">Earned ${new Date(i.trophy.earned_at).toLocaleDateString()}</div></div></div>` : ''}
-    ${i.type === 'game' ? `<div class="row" style="margin-bottom:14px">${i.meta?.achievements ? `<span class="muted" style="font-size:13px">🏅 ${i.meta.achievements.unlocked}/${i.meta.achievements.total} achievements</span>` : ''}
+    ${i.type === 'game' ? `<div class="row" style="margin-bottom:14px">${i.meta?.playtime_minutes ? `<span class="muted" style="font-size:13px">⏱ ${fmtMin(i.meta.playtime_minutes)} on ${esc(i.meta.platform ?? i.source)}</span>` : ''}${i.meta?.achievements ? `<span class="muted" style="font-size:13px">🏅 ${i.meta.achievements.unlocked}/${i.meta.achievements.total} achievements</span>` : ''}
       ${i.trophy ? '' : `<button class="btn ghost small" data-perfect="${i.meta?.perfect ? '0' : '1'}">${i.meta?.perfect ? 'UNMARK 100%' : '★ MARK 100%'}</button>`}</div>` : ''}
     <div class="chips" role="group" aria-label="Status">${META.statuses.map((s) => `<button class="chip" data-set-status="${s}" aria-pressed="${i.status === s}">${STATUS_LABEL[s].toLowerCase()}</button>`).join('')}</div>
     <div class="field"><label>RATING</label><div class="rating">${Array.from({ length: 10 }, (_, n) => `<button data-rate="${n + 1}" class="${i.rating && n < i.rating ? 'on' : ''}" aria-label="Rate ${n + 1}">${n + 1}</button>`).join('')}</div></div>
@@ -477,6 +477,9 @@ async function renderConnect() {
     <h1 class="view-title"><span class="t">CONNECT</span></h1>
     <p class="view-sub">Plug 128bitplay and the rest of the family in. Full reference in <code>docs/API.md</code>.</p>
 
+    <h2 class="sec">GAME PLATFORMS</h2>
+    <div id="platforms"></div>
+
     <h2 class="sec">API KEYS</h2>
     <form id="key-form" class="row" style="margin-bottom:8px">
       <input class="input" name="name" required maxlength="60" placeholder="128bitplay" aria-label="Key name" style="flex:1;min-width:160px">
@@ -527,6 +530,7 @@ async function renderConnect() {
     <p class="muted" style="margin-bottom:12px">Local-first: it all lives in one SQLite file on your machine.</p>
     <div class="row"><a class="btn ghost" href="#" id="export">⬇ EXPORT JSON</a>${importButton()}</div>`;
   bindImport(renderConnect);
+  await renderPlatforms($('#platforms'));
 
   $('#key-form').addEventListener('submit', guard(async (e) => {
     e.preventDefault();
@@ -563,6 +567,59 @@ async function renderConnect() {
   }));
 }
 
+// ---------- game platforms ----------
+const PLATFORM_ICON = { steam: '🎮', xbox: '🟢', psn: '🔷' };
+
+async function renderPlatforms(el) {
+  const list = await api('GET', '/connectors');
+  el.innerHTML = list.map((c) => `<details class="platform" ${c.configured ? '' : ''}>
+    <summary><span class="platform-name">${PLATFORM_ICON[c.name] ?? '🎮'} ${esc(c.label)}</span>
+      ${c.official ? '' : '<span class="pill">UNOFFICIAL</span>'}
+      <span class="muted platform-state">${c.last_error ? '⚠ error' : c.last_sync_at ? `synced ${new Date(c.last_sync_at).toLocaleDateString()}` : c.configured ? 'ready' : 'not connected'}</span></summary>
+    <form data-conn="${c.name}">
+      <p class="muted" style="font-size:13px;line-height:1.6;margin-bottom:12px">${esc(c.help)}</p>
+      ${c.warning ? `<p class="nudge" style="line-height:1.6">⚠ ${esc(c.warning)}</p>` : ''}
+      ${c.fields.map((f) => `<div class="field"><label for="cf-${c.name}-${f.key}">${esc(f.label.toUpperCase())}</label>
+        <input class="input" id="cf-${c.name}-${f.key}" name="${f.key}" ${f.secret ? 'type="password" autocomplete="off"' : ''}
+          value="${f.secret ? '' : esc(f.value ?? '')}" placeholder="${f.secret && f.set ? 'saved — paste to replace' : ''}"></div>`).join('')}
+      ${c.warning ? `<label class="row" style="font-size:13px;margin-bottom:12px;gap:8px"><input type="checkbox" name="accept_risk" ${c.fields && c.configured ? '' : ''}> I understand the risk</label>` : ''}
+      ${c.last_result ? `<p class="muted" style="font-size:12px;margin-bottom:10px">Last sync: ${c.last_result.games} games · ${c.last_result.perfect} at 100% · +${fmtMin(c.last_result.minutes)}</p>` : ''}
+      ${c.last_error ? `<p class="nudge">Last error: ${esc(c.last_error)}</p>` : ''}
+      <div class="row"><button class="btn teal small">SAVE</button>
+        <button type="button" class="btn small" data-conn-sync ${c.configured ? '' : 'disabled'}>⟳ SYNC NOW</button>
+        ${c.configured ? '<button type="button" class="btn ghost small" data-conn-remove>DISCONNECT</button>' : ''}</div>
+    </form></details>`).join('');
+
+  el.querySelectorAll('form[data-conn]').forEach((form) => {
+    const name = form.dataset.conn;
+    form.addEventListener('submit', guard(async (e) => {
+      e.preventDefault();
+      const body = formData(form);
+      if (form.querySelector('[name=accept_risk]')) body.accept_risk = form.querySelector('[name=accept_risk]').checked;
+      await api('PUT', `/connectors/${name}`, body);
+      toast('SAVED');
+      await renderPlatforms(el);
+      el.querySelector(`form[data-conn="${name}"]`)?.closest('details')?.setAttribute('open', '');
+    }));
+    form.querySelector('[data-conn-sync]').addEventListener('click', guard(async (e) => {
+      e.target.disabled = true;
+      e.target.textContent = 'SYNCING…';
+      try {
+        const r = await api('POST', `/connectors/${name}/sync`, {});
+        toast(`${r.games} GAMES · ${r.added} NEW · ${r.perfect} AT 100%`);
+        if (r.new_trophies?.length) celebrate(r.new_trophies.length === 1 ? r.new_trophies[0] : { ...r.new_trophies[0], title: `${r.new_trophies[0].title} + ${r.new_trophies.length - 1} more` });
+      } finally {
+        await renderPlatforms(el);
+      }
+    }));
+    form.querySelector('[data-conn-remove]')?.addEventListener('click', guard(async () => {
+      if (!confirm('Disconnect? Synced games stay in your library.')) return;
+      await api('DELETE', `/connectors/${name}`);
+      await renderPlatforms(el);
+    }));
+  });
+}
+
 // ---------- import ----------
 function importButton() {
   return `<label class="btn ghost" style="cursor:pointer">⬆ IMPORT JSON<input type="file" accept="application/json,.json" id="import-file" hidden></label>`;
@@ -587,6 +644,8 @@ async function renderSync() {
   view.innerHTML = `
     <h1 class="view-title"><span class="t">SYNC</span></h1>
     <p class="view-sub">Everything lives on this phone and works offline. Link a Tracker server to pull in 128bitplay and other 128bit apps, and send your streaks back out.</p>
+    <h2 class="sec">GAME PLATFORMS</h2>
+    <div id="platforms"></div>
     <h2 class="sec">SERVER</h2>
     <form id="sync-form">
       <div class="field"><label for="sy-url">SERVER URL</label><input class="input" id="sy-url" name="server_url" type="url" inputmode="url" placeholder="https://tracker.example.com" value="${esc(s.server_url ?? '')}"></div>
@@ -614,6 +673,7 @@ async function renderSync() {
     <h2 class="sec">FILES</h2>
     <div class="row"><button class="btn ghost" id="export">⬇ EXPORT JSON</button>${importButton()}</div>`;
   bindImport(renderSync);
+  await renderPlatforms($('#platforms'));
   $('#up-check').addEventListener('click', guard(async () => {
     $('#up-check').disabled = true;
     try {

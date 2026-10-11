@@ -7,6 +7,7 @@ import * as stats from '../domain/stats.js';
 import { listEvents } from '../domain/events.js';
 import { exportAll, importAll } from '../domain/backup.js';
 import * as trophies from '../domain/trophies.js';
+import * as connectors from '../integrations/connectors/index.js';
 
 export const API_VERSION = '1';
 
@@ -77,6 +78,10 @@ export function addCoreRoutes(r, ctx) {
     if (!Number.isInteger(y) || y < 1970 || y > 2999) throw new HttpError(400, 'invalid year');
     return stats.yearInPixels(ctx, y);
   });
+  r.get('/api/v1/connectors', 'read', () => connectors.listConnectors(ctx));
+  r.put('/api/v1/connectors/:name', 'write', ({ params, body }) => connectors.configureConnector(ctx, params.name, body ?? {}));
+  r.delete('/api/v1/connectors/:name', 'write', ({ params }) => (connectors.removeConnector(ctx, params.name), [204]));
+  r.post('/api/v1/connectors/:name/sync', 'write', ({ params }) => connectors.syncConnector(ctx, params.name));
   r.get('/api/v1/trophies', 'read', () => ({ trophies: trophies.listTrophies(ctx), counts: trophies.trophyCounts(ctx), kinds: trophies.TROPHIES }));
   r.get('/api/v1/export', 'read', () => exportAll(db));
   r.post('/api/v1/import', 'write', ({ body }) => importAll(db, body));

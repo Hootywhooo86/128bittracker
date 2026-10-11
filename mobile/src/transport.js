@@ -19,7 +19,8 @@ let booting = null;
 function boot() {
   booting ??= (async () => {
     const store = await openDevice();
-    const ctx = { db: store.db, events: createEventBus(store.db) };
+    // fetch goes through Capacitor's native HTTP (no CORS), so Steam/Xbox/PSN work from the phone.
+    const ctx = { db: store.db, events: createEventBus(store.db), fetch: (...a) => fetch(...a) };
     const sync = createSync(ctx, { scheduleSave: store.scheduleSave });
     const reminders = createReminders(ctx);
     const updates = createUpdates();

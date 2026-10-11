@@ -17,7 +17,7 @@ const MAX_BODY = 32 * 1024 * 1024; // full imports/backups can be large
 export function createApp({ db = openDb(), fetchImpl, password, secret, corsOrigins = (process.env.TRACKER_CORS_ORIGINS ?? '').split(',').filter(Boolean) } = {}) {
   const notify = createDispatcher(db, { fetchImpl });
   const events = createEventBus(db, { onCommit: notify });
-  const ctx = { db, events, notify };
+  const ctx = { db, events, notify, fetch: fetchImpl ?? globalThis.fetch };
   const auth = createAuth(db, { password, secret });
   const router = buildRoutes(ctx, auth);
 

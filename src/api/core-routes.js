@@ -12,6 +12,7 @@ import * as services from '../integrations/services.js';
 import { searchTitles, showSeasons } from '../integrations/metadata.js';
 import { importFile } from '../integrations/imports.js';
 import * as family from '../integrations/family-account.js';
+import { upcoming } from '../integrations/calendar.js';
 
 export const API_VERSION = '1';
 
@@ -96,6 +97,7 @@ export function addCoreRoutes(r, ctx) {
   r.post('/api/v1/family/signup', 'write', ({ body }) => family.familySignUp(ctx, body ?? {}));
   r.post('/api/v1/family/signout', 'write', () => family.familySignOut(ctx));
   r.post('/api/v1/family/sync', 'write', () => family.familySync(ctx));
+  r.get('/api/v1/calendar', 'read', ({ query }) => upcoming(ctx, { refresh: query.refresh === '1' }));
   r.get('/api/v1/trophies', 'read', () => ({ trophies: trophies.listTrophies(ctx), counts: trophies.trophyCounts(ctx), kinds: trophies.TROPHIES }));
   r.get('/api/v1/export', 'read', () => exportAll(db));
   r.post('/api/v1/import', 'write', ({ body }) => importAll(db, body));

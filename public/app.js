@@ -433,6 +433,7 @@ async function renderTimeline() {
   view.innerHTML = `
     <h1 class="view-title"><span class="t">TIMELINE</span></h1>
     <p class="view-sub">Every event from every 128bit app, on one record.</p>
+    <div id="coming-up"></div>
     <div class="chips" role="group" aria-label="Source">
       <button class="chip" data-src="" aria-pressed="${!state.tlSource}">All apps</button>
       ${sources.map((s) => `<button class="chip" data-src="${s}" aria-pressed="${state.tlSource === s}" style="--c:${APP_COLORS[s]}">${s.replace('128bit', '')}</button>`).join('')}
@@ -443,6 +444,27 @@ async function renderTimeline() {
       <div class="tl">${evs.map(tlItem).join('')}</div>`).join('') : `<div class="empty"><span class="px">QUIET SO FAR</span>Log a habit or connect a 128bit app and events show up here.</div>`}`;
   view.querySelectorAll('[data-src]').forEach((b) => b.addEventListener('click', () => { state.tlSource = b.dataset.src; guard(renderTimeline)(); }));
   $('#tl-all').addEventListener('click', () => { state.tlAll = !state.tlAll; guard(renderTimeline)(); });
+  renderComingUp($('#coming-up'));
+}
+
+async function renderComingUp(el, refresh = false) {
+  let list;
+  try { list = await api('GET', `/calendar${refresh ? '?refresh=1' : ''}`); } catch { return; }
+  if (!el.isConnected) return;
+  if (!list.length) { el.innerHTML = ''; return; }
+  const day = (d) => {
+    if (!d) return 'TBA';
+    const dt = new Date(d + 'T12:00');
+    const diff = Math.round((dt - new Date(todayStr() + 'T12:00')) / 86400000);
+    return diff === 0 ? 'TODAY' : diff === 1 ? 'TMRW' : dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }).toUpperCase();
+  };
+  el.innerHTML = `<h2 class="sec" style="margin-top:0">COMING UP <button class="icon-btn" id="cu-refresh" title="Refresh">⟳</button></h2>
+    <div class="coming">${list.slice(0, 12).map((e) => `<button class="coming-item" data-item="${e.item_id}">
+      <span class="coming-date px">${esc(day(e.date))}</span>
+      ${e.cover_url ? `<img src="${esc(e.cover_url)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span class="coming-ico">${e.kind === 'release' ? '🎮' : '📺'}</span>`}
+      <span class="coming-text"><b>${esc(e.title)}</b><br><span class="muted">${esc(e.detail)}</span></span></button>`).join('')}</div>`;
+  el.querySelector('#cu-refresh').addEventListener('click', () => renderComingUp(el, true));
+  el.querySelectorAll('[data-item]').forEach((b) => b.addEventListener('click', guard(async () => itemDetail(await api('GET', `/items/${b.dataset.item}`)))));
 }
 
 function tlItem(e) {

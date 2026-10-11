@@ -150,3 +150,39 @@ test('search routes each type to the right provider', async () => {
   assert.equal(seen.filter((u) => u.includes('id.twitch.tv')).length, 1, 'IGDB token is cached');
   await assert.rejects(() => searchTitles(c, { type: 'book', q: 'x' }), /at least 2/);
 });
+
+test('calendar: next episodes and game releases, cached', async () => {
+  const { upcoming } = await import('../src/integrations/calendar.js');
+  const { createItem } = await import('../src/domain/library.js');
+  let calls = 0;
+  const soon = new Date(Date.now() + 5 * 86400_000);
+  const fetch = async (url, init = {}) => {
+    calls++;
+    const u = String(url);
+    const body = (x) => new Response(JSON.stringify(x), { status: 200 });
+    if (u.includes('tvmaze.com/singlesearch')) return body({ id: 44933 });
+    if (u.includes('tvmaze.com/shows/44933')) return body({ _embedded: { nextepisode: { airdate: soon.toISOString().slice(0, 10), season: 3, number: 1, name: 'Return' } } });
+    if (u.includes('anilist')) {
+      const v = JSON.parse(init.body).variables;
+      if (v.ids?.length) return body({ data: { byId: { media: [{ id: 7, nextAiringEpisode: { airingAt: Math.floor(soon.getTime() / 1000) + 86400, episode: 12 } }] }, byName: null } });
+      return body({ data: { byId: { media: [] }, byName: null } });
+    }
+    if (u.includes('appdetails')) return body({ 1145350: { success: true, data: { release_date: { coming_soon: true, date: 'Q4 2026' } } } });
+    return new Response('{}', { status: 404 });
+  };
+  const c = ctx(fetch);
+  createItem(c, { type: 'show', title: 'Severance', status: 'active', meta: { season: 2 } });
+  createItem(c, { type: 'show', title: 'Severance', status: 'planned', meta: { season: 3 } });
+  createItem(c, { type: 'anime', title: 'Frieren S3', status: 'active', meta: { anilist_id: 7 } });
+  createItem(c, { type: 'game', title: 'Hades III', status: 'planned', meta: { provider: 'steam', provider_id: '1145350' } });
+  createItem(c, { type: 'show', title: 'Finished Show', status: 'done' });
+  const list = await upcoming(c);
+  assert.deepEqual(list.map((e) => [e.title, e.detail]), [
+    ['Severance', 'S3 E1 · Return'],
+    ['Frieren S3', 'Episode 12'],
+    ['Hades III', 'Coming Q4 2026'],
+  ]);
+  const n = calls;
+  await upcoming(c);
+  assert.equal(calls, n, 'cached');
+});

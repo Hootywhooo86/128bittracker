@@ -281,6 +281,7 @@ async function renderLibrary() {
     <p class="view-sub">Everything you play, watch, read and listen to. 128bitplay games show up here on their own.</p>
     <div class="row" style="margin-bottom:16px">
       <button class="btn" id="add-item">+ ADD</button>
+      <button class="btn ghost" id="import-lib">⬆ IMPORT</button>
       <input class="input" id="lib-q" type="search" placeholder="Search title or creator" aria-label="Search library" value="${esc(state.libQuery)}" style="flex:1;min-width:180px">
     </div>
     <div class="chips" role="group" aria-label="Type">
@@ -293,6 +294,7 @@ async function renderLibrary() {
     </div>
     ${items.length ? `<div class="lib">${items.map(tile).join('')}</div>` : `<div class="empty"><span class="px">NOTHING HERE YET</span>Add a game, show or book — or connect 128bitplay from the Connect tab.</div>`}`;
   $('#add-item').addEventListener('click', () => itemModal());
+  $('#import-lib').addEventListener('click', importModal);
   let t;
   $('#lib-q').addEventListener('input', (e) => { clearTimeout(t); t = setTimeout(guard(async () => { state.libQuery = e.target.value; await renderLibrary(); $('#lib-q').focus(); $('#lib-q').setSelectionRange(9999, 9999); }), 250); });
   view.querySelectorAll('[data-type]').forEach((b) => b.addEventListener('click', () => { state.libType = b.dataset.type; guard(renderLibrary)(); }));
@@ -315,7 +317,11 @@ function tile(i) {
 function itemModal(item = {}) {
   const editing = !!item.id;
   const types = Object.keys(META.item_types);
-  modal(editing ? `EDIT ${item.title}` : 'ADD TO LIBRARY', `<form>
+  let picked = {};
+  modal(editing ? `EDIT ${item.title}` : 'ADD TO LIBRARY', `${editing ? '' : `<div class="search-box">
+      <div class="row"><input class="input" id="sr-q" type="search" placeholder="Search to fill in cover & details" aria-label="Search titles" style="flex:1;min-width:0">
+        <button type="button" class="btn small" id="sr-go">SEARCH</button></div>
+      <div id="sr-results" class="sr-results"></div><div id="sr-seasons"></div></div>`}<form>
     <div class="field"><label for="if-title">TITLE</label><input class="input" id="if-title" name="title" required maxlength="200" value="${esc(item.title ?? '')}"></div>
     <div class="grid2">
       <div class="field"><label for="if-type">TYPE</label><select class="input" id="if-type" name="type">${types.map((t) => `<option ${(item.type ?? state.libType ?? 'game') === t ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
@@ -327,10 +333,42 @@ function itemModal(item = {}) {
       <div class="field"><label for="if-season">SEASON (SHOWS)</label><input class="input" id="if-season" name="season" type="number" min="0" value="${esc(item.meta?.season ?? '')}" placeholder="1"></div>
     </div>
     <button class="btn teal">${editing ? 'SAVE' : 'ADD'}</button></form>`, (m, close) => {
+    const form = m.querySelector('form');
+    const set = (name, v) => { if (v != null && v !== '') form.elements[name].value = v; };
+    const runSearch = guard(async () => {
+      const q = m.querySelector('#sr-q').value.trim();
+      const type = form.elements.type.value;
+      if (q.length < 2) return;
+      const box = m.querySelector('#sr-results');
+      box.innerHTML = '<p class="muted" style="font-size:13px">Searching…</p>';
+      m.querySelector('#sr-seasons').innerHTML = '';
+      const results = await api('GET', `/search?${new URLSearchParams({ type, q })}`);
+      box.innerHTML = results.length ? results.map((r, i) => `<button type="button" class="sr-item" data-i="${i}">
+          ${r.cover_url ? `<img src="${esc(r.cover_url)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : '<span class="sr-noimg">?</span>'}
+          <span><b>${esc(r.title)}</b><br><span class="muted">${[r.year, r.creator, r.progress_total ? r.progress_total + ' ' + (META.item_types[type]?.unit ?? '') : null].filter(Boolean).map(esc).join(' · ')}</span></span></button>`).join('')
+        : `<p class="muted" style="font-size:13px">No matches${type === 'movie' ? ' (movie search works best with a TMDB key — Connect tab)' : ''}.</p>`;
+      box.querySelectorAll('.sr-item').forEach((b) => b.addEventListener('click', guard(async () => {
+        const r = results[Number(b.dataset.i)];
+        picked = { ...(r.meta ?? {}), provider: r.provider, provider_id: r.provider_id };
+        set('title', r.title); set('creator', r.creator); set('year', r.year); set('cover_url', r.cover_url); set('progress_total', r.progress_total);
+        box.querySelectorAll('.sr-item').forEach((x) => x.classList.toggle('on', x === b));
+        if (type === 'show' && (r.provider === 'tvmaze' || r.provider === 'tmdb')) {
+          const seasons = await api('GET', `/search/seasons?${new URLSearchParams({ provider: r.provider, id: r.provider_id })}`);
+          m.querySelector('#sr-seasons').innerHTML = seasons.length ? `<p class="muted" style="font-size:12px;margin:8px 0 6px">Track which season?</p><div class="chips">${seasons.map((x, i) => `<button type="button" class="chip" data-s="${i}">S${x.number}${x.episodes ? ' · ' + x.episodes + ' ep' : ''}</button>`).join('')}</div>` : '';
+          m.querySelectorAll('[data-s]').forEach((c) => c.addEventListener('click', () => {
+            const x = seasons[Number(c.dataset.s)];
+            set('season', x.number); set('progress_total', x.episodes); set('year', x.year); set('cover_url', x.cover_url);
+            m.querySelectorAll('[data-s]').forEach((y) => y.setAttribute('aria-pressed', String(y === c)));
+          }));
+        }
+      })));
+    });
+    m.querySelector('#sr-go')?.addEventListener('click', runSearch);
+    m.querySelector('#sr-q')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); runSearch(); } });
     m.querySelector('form').addEventListener('submit', guard(async (e) => {
       e.preventDefault();
       const { season, ...f } = formData(e.target);
-      const body = { ...f, year: f.year || null, progress_total: f.progress_total || null, cover_url: f.cover_url || null, creator: f.creator || null, meta: { season: season ? Number(season) : null } };
+      const body = { ...f, year: f.year || null, progress_total: f.progress_total || null, cover_url: f.cover_url || null, creator: f.creator || null, meta: { ...picked, season: season ? Number(season) : null } };
       const saved = editing ? await api('PATCH', `/items/${item.id}`, body) : await api('POST', '/items', body);
       close(); toast(editing ? 'SAVED' : 'ADDED'); await renderLibrary();
       if (editing) itemDetail(await api('GET', `/items/${saved.id}`));
@@ -480,6 +518,9 @@ async function renderConnect() {
     <h2 class="sec">GAME PLATFORMS</h2>
     <div id="platforms"></div>
 
+    <h2 class="sec">MOVIE, TV &amp; GAME DATA</h2>
+    <div id="services"></div>
+
     <h2 class="sec">API KEYS</h2>
     <form id="key-form" class="row" style="margin-bottom:8px">
       <input class="input" name="name" required maxlength="60" placeholder="128bitplay" aria-label="Key name" style="flex:1;min-width:160px">
@@ -531,6 +572,7 @@ async function renderConnect() {
     <div class="row"><a class="btn ghost" href="#" id="export">⬇ EXPORT JSON</a>${importButton()}</div>`;
   bindImport(renderConnect);
   await renderPlatforms($('#platforms'));
+  await renderServices($('#services'));
 
   $('#key-form').addEventListener('submit', guard(async (e) => {
     e.preventDefault();
@@ -565,6 +607,46 @@ async function renderConnect() {
     a.click();
     URL.revokeObjectURL(a.href);
   }));
+}
+
+async function renderServices(el) {
+  const list = await api('GET', '/services');
+  el.innerHTML = list.map((c) => `<details class="platform"><summary><span class="platform-name">${esc(c.label)}</span>
+      <span class="muted platform-state">${c.configured ? '✓ key saved' : 'optional'}</span></summary>
+    <form data-svc="${c.name}"><p class="muted" style="font-size:13px;line-height:1.6;margin-bottom:12px">${esc(c.help)}</p>
+      ${c.fields.map((f) => `<div class="field"><label for="sv-${c.name}-${f.key}">${esc(f.label.toUpperCase())}</label>
+        <input class="input" id="sv-${c.name}-${f.key}" name="${f.key}" ${f.secret ? 'type="password" autocomplete="off"' : ''} value="${f.secret ? '' : esc(f.value ?? '')}" placeholder="${f.secret && f.set ? 'saved — paste to replace' : ''}"></div>`).join('')}
+      <button class="btn teal small">SAVE</button></form></details>`).join('');
+  el.querySelectorAll('form[data-svc]').forEach((form) => form.addEventListener('submit', guard(async (e) => {
+    e.preventDefault();
+    await api('PUT', `/services/${form.dataset.svc}`, formData(form));
+    toast('SAVED');
+    await renderServices(el);
+  })));
+}
+
+// ---------- imports ----------
+function importModal() {
+  modal('IMPORT YOUR HISTORY', `<p class="muted" style="font-size:14px;line-height:1.7;margin-bottom:14px">Bring your lists from:</p>
+    <ul class="import-list">
+      <li><b>Goodreads</b>: My Books → Import and export → Export library</li>
+      <li><b>StoryGraph</b>: Manage account → Export StoryGraph library</li>
+      <li><b>Letterboxd</b>: Settings → Data → Export your data (use watched.csv, diary.csv, ratings.csv or watchlist.csv)</li>
+      <li><b>MyAnimeList</b>: Profile → Export lists (anime or manga, unzip the .xml)</li>
+      <li><b>Steam / Xbox / PlayStation</b>: connect them on the ${platform === 'web' ? 'Connect' : 'Sync'} tab</li>
+    </ul>
+    <label class="btn teal" style="cursor:pointer;margin-top:8px">CHOOSE FILE<input type="file" accept=".csv,.xml,text/csv,text/xml,application/xml" id="imp-file" hidden></label>
+    <p class="muted" id="imp-status" style="font-size:13px;margin-top:12px">Re-importing the same file updates instead of duplicating.</p>`, (m, close) => {
+    m.querySelector('#imp-file').addEventListener('change', guard(async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      m.querySelector('#imp-status').textContent = `Importing ${file.name}…`;
+      const r = await api('POST', '/imports', { text: await file.text(), filename: file.name });
+      close();
+      toast(`${r.format}: ${r.added} ADDED · ${r.updated} UPDATED${r.trophies ? ` · ${r.trophies} TROPHIES` : ''}`);
+      await renderLibrary();
+    }));
+  });
 }
 
 // ---------- game platforms ----------
@@ -646,6 +728,8 @@ async function renderSync() {
     <p class="view-sub">Everything lives on this phone and works offline. Link a Tracker server to pull in 128bitplay and other 128bit apps, and send your streaks back out.</p>
     <h2 class="sec">GAME PLATFORMS</h2>
     <div id="platforms"></div>
+    <h2 class="sec">MOVIE, TV &amp; GAME DATA</h2>
+    <div id="services"></div>
     <h2 class="sec">SERVER</h2>
     <form id="sync-form">
       <div class="field"><label for="sy-url">SERVER URL</label><input class="input" id="sy-url" name="server_url" type="url" inputmode="url" placeholder="https://tracker.example.com" value="${esc(s.server_url ?? '')}"></div>
@@ -674,6 +758,7 @@ async function renderSync() {
     <div class="row"><button class="btn ghost" id="export">⬇ EXPORT JSON</button>${importButton()}</div>`;
   bindImport(renderSync);
   await renderPlatforms($('#platforms'));
+  await renderServices($('#services'));
   $('#up-check').addEventListener('click', guard(async () => {
     $('#up-check').disabled = true;
     try {

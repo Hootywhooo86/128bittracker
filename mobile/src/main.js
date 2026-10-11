@@ -19,6 +19,9 @@ device().then(({ store, sync, reminders, updates }) => {
   reminders.refresh();
   App.addListener('resume', () => reminders.refresh());
   autoSyncPlatforms();
+  familyTick();
+  setInterval(familyTick, 5 * 60_000);
+  App.addListener('resume', familyTick);
   App.addListener('resume', autoSyncPlatforms);
   sync.startAuto({
     onSynced: () => {
@@ -40,4 +43,11 @@ async function autoSyncPlatforms() {
       window.dispatchEvent(new CustomEvent('tracker:synced'));
     }
   }
+}
+
+// 128bit family feed: pull what Play/Fit posted, share Tracker's wins.
+async function familyTick() {
+  const { request } = await import('./transport.js');
+  const { data } = await request('POST', '/family/sync', {});
+  if (data?.pulled) window.dispatchEvent(new CustomEvent('tracker:synced'));
 }

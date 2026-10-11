@@ -515,6 +515,9 @@ async function renderConnect() {
     <h1 class="view-title"><span class="t">CONNECT</span></h1>
     <p class="view-sub">Plug 128bitplay and the rest of the family in. Full reference in <code>docs/API.md</code>.</p>
 
+    <h2 class="sec">128BIT FAMILY ACCOUNT</h2>
+    <div id="family"></div>
+
     <h2 class="sec">GAME PLATFORMS</h2>
     <div id="platforms"></div>
 
@@ -571,6 +574,7 @@ async function renderConnect() {
     <p class="muted" style="margin-bottom:12px">Local-first: it all lives in one SQLite file on your machine.</p>
     <div class="row"><a class="btn ghost" href="#" id="export">⬇ EXPORT JSON</a>${importButton()}</div>`;
   bindImport(renderConnect);
+  await renderFamily($('#family'));
   await renderPlatforms($('#platforms'));
   await renderServices($('#services'));
 
@@ -647,6 +651,52 @@ function importModal() {
       await renderLibrary();
     }));
   });
+}
+
+// ---------- 128bit family account ----------
+async function renderFamily(el) {
+  const f = await api('GET', '/family');
+  if (!f.signed_in) {
+    el.innerHTML = `<form class="family" id="fam-form">
+      <p class="muted" style="font-size:13px;line-height:1.6;margin-bottom:12px">One account for 128bitPlay, 128bitfit, Gold and Tracker. Sign in with the same email you use in 128bitPlay (Settings → Account) to pull in what you read, watch and lift, and share your streaks and trophies back.</p>
+      <div class="field"><label for="fam-email">EMAIL</label><input class="input" id="fam-email" name="email" type="email" autocomplete="email" required></div>
+      <div class="field"><label for="fam-pass">PASSWORD</label><input class="input" id="fam-pass" name="password" type="password" autocomplete="current-password" required minlength="6"></div>
+      <div class="row"><button class="btn teal">SIGN IN</button><button type="button" class="btn ghost" id="fam-signup">CREATE ACCOUNT</button></div>
+      <p class="muted" style="font-size:12px;margin-top:10px">Use Google or Apple to sign in to 128bitPlay? Google / Apple sign-in for Tracker is coming in a later update.</p>
+    </form>`;
+    const form = $('#fam-form');
+    form.addEventListener('submit', guard(async (e) => {
+      e.preventDefault();
+      await api('POST', '/family/signin', formData(form));
+      toast('SIGNED IN · SYNCING');
+      await renderFamily(el);
+      await api('POST', '/family/sync', {});
+      await renderFamily(el);
+    }));
+    $('#fam-signup').addEventListener('click', guard(async () => {
+      if (!form.reportValidity()) return;
+      const r = await api('POST', '/family/signup', formData(form));
+      if (r.confirm_email) toast('CHECK YOUR EMAIL, THEN SIGN IN');
+      else { toast('ACCOUNT CREATED'); await renderFamily(el); }
+    }));
+    return;
+  }
+  el.innerHTML = `<div class="family">
+    <p style="margin-bottom:10px">✓ Signed in as <b>${esc(f.email)}</b>${f.project ? ` <span class="pill">${esc(f.project)}</span>` : ''}</p>
+    <p class="muted" style="font-size:13px;margin-bottom:12px">Last sync: ${f.last_sync_at ? new Date(f.last_sync_at).toLocaleString() : 'never'} · ${f.pulled_total} in · ${f.pushed_total} out</p>
+    ${f.last_error ? `<p class="nudge">Last error: ${esc(f.last_error)}</p>` : ''}
+    <div class="row"><button class="btn teal small" id="fam-sync">⟳ SYNC NOW</button><button class="btn ghost small" id="fam-out">SIGN OUT</button></div></div>`;
+  $('#fam-sync').addEventListener('click', guard(async () => {
+    $('#fam-sync').disabled = true;
+    const r = await api('POST', '/family/sync', {});
+    toast(r.error ? `SYNC FAILED: ${r.error}` : `FAMILY · ${r.pulled} IN · ${r.pushed} OUT`, !!r.error);
+    await renderFamily(el);
+  }));
+  $('#fam-out').addEventListener('click', guard(async () => {
+    if (!confirm('Sign out of the 128bit family account? Your data stays here.')) return;
+    await api('POST', '/family/signout', {});
+    await renderFamily(el);
+  }));
 }
 
 // ---------- game platforms ----------
@@ -726,6 +776,8 @@ async function renderSync() {
   view.innerHTML = `
     <h1 class="view-title"><span class="t">SYNC</span></h1>
     <p class="view-sub">Everything lives on this phone and works offline. Link a Tracker server to pull in 128bitplay and other 128bit apps, and send your streaks back out.</p>
+    <h2 class="sec">128BIT FAMILY ACCOUNT</h2>
+    <div id="family"></div>
     <h2 class="sec">GAME PLATFORMS</h2>
     <div id="platforms"></div>
     <h2 class="sec">MOVIE, TV &amp; GAME DATA</h2>
@@ -757,6 +809,7 @@ async function renderSync() {
     <h2 class="sec">FILES</h2>
     <div class="row"><button class="btn ghost" id="export">⬇ EXPORT JSON</button>${importButton()}</div>`;
   bindImport(renderSync);
+  await renderFamily($('#family'));
   await renderPlatforms($('#platforms'));
   await renderServices($('#services'));
   $('#up-check').addEventListener('click', guard(async () => {
@@ -816,5 +869,9 @@ async function boot() {
   }
   if (!META.authenticated) return showLogin();
   go(current(), false);
+  // Pull in what the other 128bit apps posted (the Android app does this in main.js).
+  if (platform === 'web') {
+    request('POST', '/family/sync', {}).then(({ data }) => { if (data?.pulled) refresh(); }).catch(() => {});
+  }
 }
 guard(boot)();

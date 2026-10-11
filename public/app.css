@@ -171,6 +171,9 @@ table.lib-stats .n{text-align:right;font-variant-numeric:tabular-nums}
 .sessions{font-size:13px;color:var(--muted);max-height:160px;overflow-y:auto;margin-top:6px}
 .sessions div{padding:5px 0;border-bottom:1px solid var(--line)}
 
+/* ---------- family ---------- */
+.family{background:var(--panel);border:3px solid var(--orange);box-shadow:5px 5px 0 var(--shadow);padding:14px}
+
 /* ---------- search & import ---------- */
 .search-box{border-bottom:3px solid var(--line);padding-bottom:14px;margin-bottom:16px}
 .sr-results{display:flex;flex-direction:column;gap:6px;margin-top:10px;max-height:300px;overflow-y:auto}

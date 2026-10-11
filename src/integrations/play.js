@@ -13,8 +13,23 @@
 //   score.posted       { game, score }                  → timeline only
 //
 // game = { id, title, cover_url?, platform?, developer?, year? }
+//
+// Media events 128bitPlay posts to the family feed (docs/EVENTS.md):
+//   book.finished   { title, author? }          → book (done)
+//   movie.watched   { title }                   → movie (done → golden VHS)
+//   episode.watched { show, episode: "S2 E3 · Name" } → that season's item; the
+//                   last episode of the season finishes it (→ golden TV)
+//   chapter.read    { comic }                   → comic (+1 issue)
 import { HttpError } from '../api/errors.js';
 import { createItem, findByExternal, updateItem, addSession, getItem } from '../domain/library.js';
+
+const key = (s) => String(s ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+
+/** Find-or-create a non-game item keyed by a stable external id. */
+function upsertMedia(ctx, externalId, fields) {
+  const existing = findByExternal(ctx, SOURCE, externalId);
+  return existing ?? createItem(ctx, fields, { source: SOURCE, externalId });
+}
 
 const SOURCE = '128bitplay';
 
@@ -67,6 +82,36 @@ export function applyPlayEvent(ctx, ev) {
       const item = upsertGame(ctx, d.game);
       updateItem(ctx, item.id, { rating: d.rating });
       return [{ item_id: item.id, rating: d.rating }];
+    }
+    case 'book.finished': {
+      if (!d.title) return [];
+      const item = upsertMedia(ctx, `book:${key(d.title)}|${key(d.author)}`, { type: 'book', title: d.title, creator: d.author ?? null });
+      return [{ item_id: updateItem(ctx, item.id, { status: 'done' }).id }];
+    }
+    case 'movie.watched': {
+      if (!d.title) return [];
+      const item = upsertMedia(ctx, `movie:${key(d.title)}`, { type: 'movie', title: d.title });
+      return [{ item_id: updateItem(ctx, item.id, { status: 'done' }).id }];
+    }
+    case 'episode.watched': {
+      if (!d.show) return [];
+      const season = Number(d.season ?? String(d.episode ?? '').match(/S(\d+)/i)?.[1]) || null;
+      const number = Number(d.number ?? String(d.episode ?? '').match(/E(\d+)/i)?.[1]) || null;
+      const item = upsertMedia(ctx, `show:${key(d.show)}${season ? `:s${season}` : ''}`, {
+        type: 'show', title: d.show, status: 'active', meta: season ? { season } : {},
+      });
+      const total = Number(d.season_episodes) || item.progress_total || null;
+      const progress = Math.max(item.progress ?? 0, number ?? (item.progress ?? 0) + 1);
+      const patch = { progress };
+      if (total && !item.progress_total) patch.progress_total = total;
+      if (total && progress >= total) patch.status = 'done';
+      else if (item.status === 'planned' || item.status === 'on_hold') patch.status = 'active';
+      return [{ item_id: updateItem(ctx, item.id, patch).id }];
+    }
+    case 'chapter.read': {
+      if (!d.comic) return [];
+      const item = upsertMedia(ctx, `comic:${key(d.comic)}`, { type: 'comic', title: d.comic, status: 'active' });
+      return [{ item_id: updateItem(ctx, item.id, { progress: (item.progress ?? 0) + 1 }).id }];
     }
     default:
       // achievement.unlocked, score.posted, and anything new: timeline only.

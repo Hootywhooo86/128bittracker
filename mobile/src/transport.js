@@ -77,7 +77,8 @@ export async function request(method, path, body) {
     });
     const [status, data] = Array.isArray(out) && typeof out[0] === 'number' ? out : [200, out];
     if (method !== 'GET') {
-      if (!/^\/api\/v1\/(sync|app)\//.test(url.pathname) && url.pathname !== '/api/v1/share-file') sync.markDirty();
+      const bookkeeping = /^\/api\/v1\/(sync|app|family)\//.test(url.pathname) || url.pathname === '/api/v1/share-file';
+      if (!bookkeeping || (url.pathname === '/api/v1/family/sync' && data?.pulled)) sync.markDirty();
       reminders.refresh();
       store.scheduleSave();
     }

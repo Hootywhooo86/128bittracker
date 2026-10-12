@@ -23,6 +23,14 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- Back from Google / Apple sign-in and the Connect buttons: app.bit128.tracker://auth, ://connect -->
+            <intent-filter android:autoVerify="false">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="app.bit128.tracker" />
+            </intent-filter>
+
         </activity>
 
         <provider

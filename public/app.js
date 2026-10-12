@@ -10,7 +10,7 @@ const APP_COLORS = {
 const STATUS_LABEL = { planned: 'PLANNED', active: 'IN PROGRESS', on_hold: 'ON HOLD', done: 'DONE', dropped: 'DROPPED' };
 
 let META = null;
-const state = { libType: '', libStatus: '', libQuery: '', tlSource: '', tlAll: false };
+const state = { libType: '', libStatus: '', libQuery: '', libList: null, tlSource: '', tlAll: false };
 
 // ---------- helpers ----------
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -20,7 +20,7 @@ const view = $('#view');
 async function api(method, path, body) {
   const { status, data } = await request(method, path, body);
   if (status === 401 && path !== '/session') { showLogin(); throw new Error('login required'); }
-  if (status >= 400) throw new Error(data?.error || `HTTP ${status}`);
+  if (status >= 400) throw Object.assign(new Error(data?.error || `HTTP ${status}`), { data, status });
   if (data?.new_trophy) setTimeout(() => celebrate(data.new_trophy), 350);
   return data;
 }
@@ -133,14 +133,24 @@ function showLogin() {
 
 // ---------- TODAY ----------
 async function renderToday() {
-  const trackers = await api('GET', '/trackers');
+  const [trackers, upnext] = await Promise.all([api('GET', '/trackers'), api('GET', '/upnext').catch(() => [])]);
   const done = trackers.filter((t) => t.today.done).length;
   view.innerHTML = `
     <h1 class="view-title"><span class="t">TODAY</span> <span class="muted" style="font-size:.6em">${esc(new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' }))}</span></h1>
     <p class="view-sub">${trackers.length ? `${done}/${trackers.length} done. Two taps and it's on the record.` : 'Nothing tracked yet. Start with one habit.'}</p>
     <div class="row" style="margin-bottom:18px"><button class="btn" id="new-tracker">+ NEW TRACKER</button></div>
-    ${trackers.length ? `<div class="cards">${trackers.map(trackerCard).join('')}</div>` : `<div class="empty"><span class="px">NO TRACKERS YET</span>Pick a preset — water, sleep, reading, mood — or make your own.</div>`}`;
+    ${trackers.length ? `<div class="cards">${trackers.map(trackerCard).join('')}</div>` : `<div class="empty"><span class="px">NO TRACKERS YET</span>Pick a preset — water, sleep, reading, mood — or make your own.</div>`}
+    ${upnext.length ? `<h2 class="sec">UP NEXT</h2><div class="upnext">${upnext.slice(0, 12).map((u) => `<div class="up-card">
+        <div class="up-cover">${u.cover_url ? `<img src="${esc(u.cover_url)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span aria-hidden="true">${esc(u.icon)}</span>`}</div>
+        <div class="up-body"><b>${esc(u.title)}</b><span class="muted">S${esc(u.next.season)} E${esc(u.next.number)}${u.progress_total ? ` of ${esc(u.progress_total)}` : ''}</span>
+          <button class="btn teal small" data-watched="${u.id}" data-next="${u.next.number}">✓ WATCHED</button></div></div>`).join('')}</div>` : ''}`;
   $('#new-tracker').addEventListener('click', newTrackerModal);
+  view.querySelectorAll('[data-watched]').forEach((b) => b.addEventListener('click', guard(async () => {
+    b.disabled = true;
+    await api('POST', `/items/${b.dataset.watched}/sessions`, { progress: Number(b.dataset.next) });
+    toast('✓ WATCHED');
+    await renderToday();
+  })));
   view.querySelectorAll('[data-log]').forEach((b) => b.addEventListener('click', guard(async () => {
     const id = b.dataset.log;
     const value = b.dataset.value === undefined ? undefined : Number(b.dataset.value);
@@ -270,11 +280,12 @@ function trackerPayload(f) {
 
 // ---------- LIBRARY ----------
 async function renderLibrary() {
+  if (state.libList) return renderList(state.libList);
   const q = new URLSearchParams();
   if (state.libType) q.set('type', state.libType);
   if (state.libStatus) q.set('status', state.libStatus);
   if (state.libQuery) q.set('q', state.libQuery);
-  const items = await api('GET', '/items?' + q);
+  const [items, lists] = await Promise.all([api('GET', '/items?' + q), api('GET', '/collections')]);
   const types = Object.entries(META.item_types);
   view.innerHTML = `
     <h1 class="view-title"><span class="o">LIBRARY</span></h1>
@@ -283,6 +294,10 @@ async function renderLibrary() {
       <button class="btn" id="add-item">+ ADD</button>
       <button class="btn ghost" id="import-lib">⬆ IMPORT</button>
       <input class="input" id="lib-q" type="search" placeholder="Search title or creator" aria-label="Search library" value="${esc(state.libQuery)}" style="flex:1;min-width:180px">
+    </div>
+    <div class="chips lists-strip" role="group" aria-label="Lists">
+      ${lists.map((l) => `<button class="chip list-chip" data-list="${l.id}">📋 ${esc(l.name)} <span class="muted">${l.item_count}</span>${l.show_in_play ? ' <span title="Shows in 128bitPlay">▶</span>' : ''}</button>`).join('')}
+      <button class="chip" id="new-list">+ NEW LIST</button>
     </div>
     <div class="chips" role="group" aria-label="Type">
       <button class="chip" data-type="" aria-pressed="${!state.libType}">All</button>
@@ -295,11 +310,97 @@ async function renderLibrary() {
     ${items.length ? `<div class="lib">${items.map(tile).join('')}</div>` : `<div class="empty"><span class="px">NOTHING HERE YET</span>Add a game, show or book — or connect 128bitplay from the Connect tab.</div>`}`;
   $('#add-item').addEventListener('click', () => itemModal());
   $('#import-lib').addEventListener('click', importModal);
+  $('#new-list').addEventListener('click', () => listModal());
+  view.querySelectorAll('[data-list]').forEach((b) => b.addEventListener('click', () => { state.libList = Number(b.dataset.list); guard(renderLibrary)(); }));
   let t;
   $('#lib-q').addEventListener('input', (e) => { clearTimeout(t); t = setTimeout(guard(async () => { state.libQuery = e.target.value; await renderLibrary(); $('#lib-q').focus(); $('#lib-q').setSelectionRange(9999, 9999); }), 250); });
   view.querySelectorAll('[data-type]').forEach((b) => b.addEventListener('click', () => { state.libType = b.dataset.type; guard(renderLibrary)(); }));
   view.querySelectorAll('[data-status]').forEach((b) => b.addEventListener('click', () => { state.libStatus = b.dataset.status; guard(renderLibrary)(); }));
   view.querySelectorAll('[data-item]').forEach((b) => b.addEventListener('click', guard(async () => itemDetail(await api('GET', `/items/${b.dataset.item}`)))));
+}
+
+// ---------- lists ----------
+const LIST_KINDS = { mixed: 'Anything', movie: 'Movies', show: 'TV shows', anime: 'Anime', book: 'Books', game: 'Games', music: 'Music', podcast: 'Podcasts', comic: 'Comics', manga: 'Manga' };
+
+async function renderList(id) {
+  let list;
+  try { list = await api('GET', `/collections/${id}`); } catch { state.libList = null; return renderLibrary(); }
+  view.innerHTML = `
+    <div class="row" style="margin-bottom:10px"><button class="btn ghost small" id="list-back">← LIBRARY</button></div>
+    <h1 class="view-title"><span class="o">${esc(list.name.toUpperCase())}</span></h1>
+    <p class="view-sub">${esc(LIST_KINDS[list.kind] ?? list.kind)} · ${list.item_count} ${list.item_count === 1 ? 'item' : 'items'}${list.show_in_play ? ' · ▶ shows in 128bitPlay' : ''}${list.is_public ? ' · 🌐 public' : ''}${list.description ? `<br>${esc(list.description)}` : ''}</p>
+    <div class="row" style="margin-bottom:16px"><button class="btn" id="list-add">+ ADD FROM LIBRARY</button><button class="btn ghost" id="list-edit">SETTINGS</button></div>
+    ${list.is_public && list.share_id ? `<p class="muted" style="font-size:13px;margin-bottom:12px">Share code: <code>${esc(list.share_id)}</code></p>` : ''}
+    ${list.items.length ? `<div class="list-items">${list.items.map((i, n) => `<div class="list-row">
+        <div class="li-cover">${i.cover_url ? `<img src="${esc(i.cover_url)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span aria-hidden="true">${esc(i.icon)}</span>`}</div>
+        <div class="grow"><b>${esc(i.title)}</b><div class="muted" style="font-size:12px">${esc(i.type)}${i.year ? ' · ' + i.year : ''} · ${STATUS_LABEL[i.status].toLowerCase()}</div></div>
+        <button class="icon-btn" data-move="${n}" data-dir="-1" aria-label="Move up" ${n === 0 ? 'disabled' : ''}>▲</button>
+        <button class="icon-btn" data-move="${n}" data-dir="1" aria-label="Move down" ${n === list.items.length - 1 ? 'disabled' : ''}>▼</button>
+        <button class="icon-btn" data-drop="${i.id}" aria-label="Remove from list">✕</button></div>`).join('')}</div>`
+      : `<div class="empty"><span class="px">EMPTY LIST</span>Add things from your library.${list.show_in_play ? ' It shows up as a row in 128bitPlay.' : ''}</div>`}`;
+  $('#list-back').addEventListener('click', () => { state.libList = null; guard(renderLibrary)(); });
+  $('#list-edit').addEventListener('click', () => listModal(list));
+  $('#list-add').addEventListener('click', guard(() => addToListModal(list)));
+  view.querySelectorAll('[data-move]').forEach((b) => b.addEventListener('click', guard(async () => {
+    const ids = list.items.map((i) => i.id);
+    const from = Number(b.dataset.move);
+    const to = from + Number(b.dataset.dir);
+    [ids[from], ids[to]] = [ids[to], ids[from]];
+    await api('POST', `/collections/${id}/order`, { item_ids: ids });
+    await renderList(id);
+  })));
+  view.querySelectorAll('[data-drop]').forEach((b) => b.addEventListener('click', guard(async () => {
+    await api('DELETE', `/collections/${id}/items/${b.dataset.drop}`);
+    await renderList(id);
+  })));
+}
+
+function listModal(list = null) {
+  modal(list ? 'LIST SETTINGS' : 'NEW LIST', `<form>
+    <div class="field"><label for="lf-name">NAME</label><input class="input" id="lf-name" name="name" required maxlength="60" value="${esc(list?.name ?? '')}" placeholder="Friday horror night"></div>
+    <div class="field"><label for="lf-kind">WHAT'S ON IT</label><select class="input" id="lf-kind" name="kind">${Object.entries(LIST_KINDS).map(([k, v]) => `<option value="${k}" ${(list?.kind ?? 'mixed') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
+    <div class="field"><label for="lf-desc">DESCRIPTION</label><input class="input" id="lf-desc" name="description" maxlength="500" value="${esc(list?.description ?? '')}"></div>
+    <label class="row" style="font-size:14px;margin-bottom:10px;gap:8px"><input type="checkbox" name="show_in_play" ${list ? (list.show_in_play ? 'checked' : '') : 'checked'}> Show in 128bitPlay (a row on its Movies / TV / Anime screens)</label>
+    <label class="row" style="font-size:14px;margin-bottom:16px;gap:8px"><input type="checkbox" name="is_public" ${list?.is_public ? 'checked' : ''}> Public: anyone with the share code can see it</label>
+    <div class="row"><button class="btn teal">${list ? 'SAVE' : 'CREATE'}</button>${list ? '<span class="spacer"></span><button type="button" class="btn pink small" id="lf-del">DELETE LIST</button>' : ''}</div></form>`, (m, close) => {
+    const form = m.querySelector('form');
+    form.addEventListener('submit', guard(async (e) => {
+      e.preventDefault();
+      const f = formData(form);
+      const body = { name: f.name, kind: f.kind, description: f.description || null, show_in_play: form.elements.show_in_play.checked, is_public: form.elements.is_public.checked };
+      const saved = list ? await api('PATCH', `/collections/${list.id}`, body) : await api('POST', '/collections', body);
+      close(); toast(list ? 'SAVED' : 'LIST CREATED');
+      state.libList = saved.id; await renderLibrary();
+    }));
+    m.querySelector('#lf-del')?.addEventListener('click', guard(async () => {
+      if (!confirm(`Delete the list "${list.name}"? The items stay in your library.`)) return;
+      await api('DELETE', `/collections/${list.id}`);
+      close(); state.libList = null; await renderLibrary();
+    }));
+  });
+}
+
+async function addToListModal(list) {
+  const kindType = list.kind !== 'mixed' ? list.kind : '';
+  const items = await api('GET', `/items?${new URLSearchParams({ ...(kindType ? { type: kindType } : {}), limit: '500' })}`);
+  const have = new Set(list.items.map((i) => i.id));
+  modal(`ADD TO ${list.name}`, `<input class="input" id="al-q" type="search" placeholder="Filter" aria-label="Filter" style="margin-bottom:10px">
+    <div class="al-list">${items.map((i) => `<label class="list-row al-row" data-t="${esc(i.title.toLowerCase())}"><input type="checkbox" value="${i.id}" ${have.has(i.id) ? 'checked' : ''}>
+      <div class="grow"><b>${esc(i.title)}</b><div class="muted" style="font-size:12px">${esc(i.icon)} ${esc(i.type)}${i.meta?.season ? ' · S' + esc(i.meta.season) : ''}${i.year ? ' · ' + i.year : ''}</div></div></label>`).join('') || '<p class="muted">Nothing in your library of that kind yet.</p>'}</div>
+    <div class="row" style="margin-top:12px"><button class="btn teal" id="al-save">DONE</button></div>`, (m, close) => {
+    m.querySelector('#al-q').addEventListener('input', (e) => {
+      const q = e.target.value.toLowerCase();
+      m.querySelectorAll('.al-row').forEach((r) => { r.hidden = !r.dataset.t.includes(q); });
+    });
+    m.querySelector('#al-save').addEventListener('click', guard(async () => {
+      for (const box of m.querySelectorAll('input[type=checkbox]')) {
+        const itemId = Number(box.value);
+        if (box.checked && !have.has(itemId)) await api('PUT', `/collections/${list.id}/items/${itemId}`);
+        if (!box.checked && have.has(itemId)) await api('DELETE', `/collections/${list.id}/items/${itemId}`);
+      }
+      close(); await renderList(list.id);
+    }));
+  });
 }
 
 function tile(i) {
@@ -384,6 +485,7 @@ function itemDetail(i) {
     ${i.type === 'game' ? `<div class="row" style="margin-bottom:14px">${i.meta?.playtime_minutes ? `<span class="muted" style="font-size:13px">⏱ ${fmtMin(i.meta.playtime_minutes)} on ${esc(i.meta.platform ?? i.source)}</span>` : ''}${i.meta?.achievements ? `<span class="muted" style="font-size:13px">🏅 ${i.meta.achievements.unlocked}/${i.meta.achievements.total} achievements</span>` : ''}
       ${i.trophy ? '' : `<button class="btn ghost small" data-perfect="${i.meta?.perfect ? '0' : '1'}">${i.meta?.perfect ? 'UNMARK 100%' : '★ MARK 100%'}</button>`}</div>` : ''}
     <div class="chips" role="group" aria-label="Status">${META.statuses.map((s) => `<button class="chip" data-set-status="${s}" aria-pressed="${i.status === s}">${STATUS_LABEL[s].toLowerCase()}</button>`).join('')}</div>
+    <div class="field"><label>LISTS</label><div class="chips" id="item-lists"><span class="muted" style="font-size:13px">…</span></div></div>
     <div class="field"><label>RATING</label><div class="rating">${Array.from({ length: 10 }, (_, n) => `<button data-rate="${n + 1}" class="${i.rating && n < i.rating ? 'on' : ''}" aria-label="Rate ${n + 1}">${n + 1}</button>`).join('')}</div></div>
     <h2 class="sec">LOG A SESSION</h2>
     <form data-session class="grid2">
@@ -409,6 +511,19 @@ function itemDetail(i) {
     }));
     m.querySelector('[data-review]').addEventListener('submit', guard(async (e) => { e.preventDefault(); await api('PATCH', `/items/${i.id}`, { review: formData(e.target).review }); toast('SAVED'); }));
     m.querySelector('[data-edit-item]').addEventListener('click', () => { close(); itemModal(i); });
+    guard(async () => {
+      const lists = await api('GET', '/collections');
+      const mine = new Set((i.collections ?? []).map((c) => c.id));
+      const box = m.querySelector('#item-lists');
+      box.innerHTML = lists.length
+        ? lists.map((l) => `<button type="button" class="chip" data-in-list="${l.id}" aria-pressed="${mine.has(l.id)}">📋 ${esc(l.name)}</button>`).join('')
+        : '<span class="muted" style="font-size:13px">No lists yet: make one in the Library.</span>';
+      box.querySelectorAll('[data-in-list]').forEach((b) => b.addEventListener('click', guard(async () => {
+        const on = b.getAttribute('aria-pressed') !== 'true';
+        await api(on ? 'PUT' : 'DELETE', `/collections/${b.dataset.inList}/items/${i.id}`);
+        b.setAttribute('aria-pressed', String(on));
+      })));
+    })();
     m.querySelector('[data-del-item]').addEventListener('click', guard(async () => {
       if (!confirm(`Delete "${i.title}"?`)) return;
       await api('DELETE', `/items/${i.id}`); close(); toast('DELETED'); renderLibrary();
@@ -692,34 +807,70 @@ async function renderFamily(el) {
       <div class="field"><label for="fam-email">EMAIL</label><input class="input" id="fam-email" name="email" type="email" autocomplete="email" required></div>
       <div class="field"><label for="fam-pass">PASSWORD</label><input class="input" id="fam-pass" name="password" type="password" autocomplete="current-password" required minlength="6"></div>
       <div class="row"><button class="btn teal">SIGN IN</button><button type="button" class="btn ghost" id="fam-signup">CREATE ACCOUNT</button></div>
-      <p class="muted" style="font-size:12px;margin-top:10px">Use Google or Apple to sign in to 128bitPlay? Google / Apple sign-in for Tracker is coming in a later update.</p>
+      <div class="row" style="margin-top:10px"><button type="button" class="btn ghost" data-provider="google">CONTINUE WITH GOOGLE</button><button type="button" class="btn ghost" data-provider="apple">CONTINUE WITH APPLE</button></div>
+      <p class="muted" style="font-size:12px;margin-top:10px;line-height:1.6">New here? Create an account and you get your own library and lists, on every device and in 128bitPlay.</p>
     </form>`;
     const form = $('#fam-form');
-    form.addEventListener('submit', guard(async (e) => {
-      e.preventDefault();
-      await api('POST', '/family/signin', formData(form));
+    const signedIn = async () => {
       toast('SIGNED IN · SYNCING');
       await renderFamily(el);
-      await api('POST', '/family/sync', {});
+      const r = await api('POST', '/family/sync', {});
       await renderFamily(el);
+      if (r?.pulled) refresh();
+    };
+    form.addEventListener('submit', guard(async (e) => {
+      e.preventDefault();
+      try {
+        await api('POST', '/family/signin', formData(form));
+      } catch (err) {
+        if (await otherAccount(err)) return;
+        throw err;
+      }
+      await signedIn();
     }));
     $('#fam-signup').addEventListener('click', guard(async () => {
       if (!form.reportValidity()) return;
-      const r = await api('POST', '/family/signup', formData(form));
+      let r;
+      try { r = await api('POST', '/family/signup', formData(form)); } catch (err) { if (await otherAccount(err)) return; throw err; }
       if (r.confirm_email) toast('CHECK YOUR EMAIL, THEN SIGN IN');
-      else { toast('ACCOUNT CREATED'); await renderFamily(el); }
+      else await signedIn();
     }));
+    el.querySelectorAll('[data-provider]').forEach((b) => b.addEventListener('click', guard(async () => {
+      const redirect = platform === 'web' ? `${location.origin}/connect` : 'app.bit128.tracker://auth';
+      const { url } = await api('POST', '/family/oauth/start', { provider: b.dataset.provider, redirect });
+      if (platform === 'web') location.href = url;
+      else await api('POST', '/app/open-url', { url });
+    })));
     return;
   }
+
   el.innerHTML = `<div class="family">
     <p style="margin-bottom:10px">✓ Signed in as <b>${esc(f.email)}</b>${f.project ? ` <span class="pill">${esc(f.project)}</span>` : ''}</p>
     <p class="muted" style="font-size:13px;margin-bottom:12px">Last sync: ${f.last_sync_at ? new Date(f.last_sync_at).toLocaleString() : 'never'} · ${f.pulled_total} in · ${f.pushed_total} out</p>
     ${f.last_error ? `<p class="nudge">Last error: ${esc(f.last_error)}</p>` : ''}
+    <p class="muted" style="font-size:13px;margin-bottom:12px;line-height:1.6">${f.cloud?.enabled
+      ? `☁ Cloud library on: your library and lists are on every device you sign in to, and 128bitPlay shows your lists.${f.cloud.last_sync_at ? ` Synced ${new Date(f.cloud.last_sync_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.` : ''}`
+      : `☁ Cloud library: ${esc(f.cloud?.last_error ?? 'turns on with the next sync')}`}</p>
+    <details class="platform"><summary><span class="platform-name">👤 Public profile</span><span class="muted platform-state">${f.cloud?.profile?.is_public ? '@' + esc(f.cloud.profile.handle) : 'private'}</span></summary>
+      <form id="prof-form"><p class="muted" style="font-size:13px;line-height:1.6;margin-bottom:12px">Private unless you turn it on. Public shows your trophy shelf and public lists, nothing else.</p>
+        <div class="field"><label for="pf-handle">HANDLE</label><input class="input" id="pf-handle" name="handle" pattern="[a-z0-9_]{3,24}" placeholder="pixelfan" value="${esc(f.cloud?.profile?.handle ?? '')}"></div>
+        <div class="field"><label for="pf-name">DISPLAY NAME</label><input class="input" id="pf-name" name="display_name" maxlength="60" value="${esc(f.cloud?.profile?.display_name ?? '')}"></div>
+        <label class="row" style="font-size:14px;margin-bottom:12px;gap:8px"><input type="checkbox" name="is_public" ${f.cloud?.profile?.is_public ? 'checked' : ''}> Public profile</label>
+        <button class="btn teal small">SAVE</button></form></details>
     <div class="row"><button class="btn teal small" id="fam-sync">⟳ SYNC NOW</button><button class="btn ghost small" id="fam-out">SIGN OUT</button></div></div>`;
+  $('#prof-form').addEventListener('submit', guard(async (e) => {
+    e.preventDefault();
+    const form = e.target;
+    await api('POST', '/family/profile', { handle: form.elements.handle.value || null, display_name: form.elements.display_name.value || null, is_public: form.elements.is_public.checked });
+    toast('PROFILE SAVED');
+    await renderFamily(el);
+  }));
+
   $('#fam-sync').addEventListener('click', guard(async () => {
     $('#fam-sync').disabled = true;
     const r = await api('POST', '/family/sync', {});
     toast(r.error ? `SYNC FAILED: ${r.error}` : `FAMILY · ${r.pulled} IN · ${r.pushed} OUT`, !!r.error);
+    if (r.new_trophies?.length) celebrate(r.new_trophies[0]);
     await renderFamily(el);
   }));
   $('#fam-out').addEventListener('click', guard(async () => {
@@ -727,6 +878,41 @@ async function renderFamily(el) {
     await api('POST', '/family/signout', {});
     await renderFamily(el);
   }));
+}
+
+/**
+ * Someone else signing in on a Tracker that holds another account's library.
+ * The phone opens a separate library for them; the server can't.
+ */
+async function otherAccount(err) {
+  if (err.data?.code !== 'other_account') return false;
+  if (platform === 'web') {
+    toast('THIS TRACKER HOLDS ANOTHER ACCOUNT', true);
+    alert('This Tracker server already holds another 128bit account\'s library. Each account gets its own library: use the Android app or your own Tracker server.');
+    return true;
+  }
+  const who = err.data.account?.email ?? 'that account';
+  if (!confirm(`Switch to ${who}'s own library on this phone? The library here stays for when its owner signs back in.`)) return true;
+  await api('POST', '/device/switch-account', { account: err.data.account });
+  return true;
+}
+
+/** Back from Google / Apple on the web (?code=…). */
+async function finishWebOAuth() {
+  if (platform !== 'web') return;
+  const q = new URLSearchParams(location.search);
+  const code = q.get('code');
+  const error = q.get('error_description');
+  if (!code && !error) return;
+  history.replaceState(null, '', location.pathname);
+  if (error) return toast(error.toUpperCase(), true);
+  try {
+    await api('POST', '/family/oauth/finish', { code });
+    toast('SIGNED IN');
+    api('POST', '/family/sync', {}).then(refresh).catch(() => {});
+  } catch (err) {
+    if (!(await otherAccount(err))) toast(err.message.toUpperCase(), true);
+  }
 }
 
 // ---------- game platforms + media accounts ----------
@@ -923,6 +1109,7 @@ async function boot() {
     return;
   }
   if (!META.authenticated) return showLogin();
+  await finishWebOAuth();
   go(current(), false);
   // Pull in what the other 128bit apps posted (the Android app does this in main.js).
   if (platform === 'web') {

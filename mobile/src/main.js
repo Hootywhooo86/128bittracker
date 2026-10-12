@@ -11,6 +11,32 @@ App.addListener('backButton', ({ canGoBack }) => {
   else App.exitApp();
 });
 
+// Back from Google / Apple sign-in: app.bit128.tracker://auth?code=…
+App.addListener('appUrlOpen', async ({ url }) => {
+  const u = new URL(url);
+  if (u.host !== 'auth' && u.pathname.replace(/^\/+/, '') !== 'auth') return;
+  const { Browser } = await import('@capacitor/browser');
+  Browser.close().catch(() => {});
+  const { request } = await import('./transport.js');
+  const code = u.searchParams.get('code');
+  const error = u.searchParams.get('error_description');
+  if (!code) {
+    if (error) alert(error);
+    return;
+  }
+  const { status, data } = await request('POST', '/family/oauth/finish', { code });
+  if (status === 409 && data?.code === 'other_account') {
+    const who = data.account?.email ?? 'that account';
+    if (confirm(`Switch to ${who}'s own library on this phone? The library here stays for when its owner signs back in.`)) {
+      await request('POST', '/device/switch-account', { account: data.account });
+    }
+    return;
+  }
+  if (status >= 400) return alert(data?.error ?? 'Sign-in failed');
+  await request('POST', '/family/sync', {});
+  window.dispatchEvent(new CustomEvent('tracker:synced'));
+});
+
 device().then(({ store, sync, reminders, updates }) => {
   updates.startAuto((info) => window.dispatchEvent(new CustomEvent('tracker:update', { detail: info })));
   // Never lose a tap: write the database out as soon as we go to the background.

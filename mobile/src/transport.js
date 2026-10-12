@@ -6,7 +6,9 @@ import { createRouter } from '../../src/api/router.js';
 import { addCoreRoutes, metaInfo } from '../../src/api/core-routes.js';
 import { HttpError } from '../../src/api/errors.js';
 import { createEventBus } from '../../src/domain/events.js';
-import { openDevice } from './engine.js';
+import { openDevice, setActiveDbKey, activeDbKey } from './engine.js';
+import { Browser } from '@capacitor/browser';
+import { familyAdopt } from '../../src/integrations/family-account.js';
 import { createSync } from './sync.js';
 import { createReminders } from './reminders.js';
 import { createUpdates } from './updates.js';
@@ -21,6 +23,29 @@ function boot() {
     const store = await openDevice();
     // fetch goes through Capacitor's native HTTP (no CORS), so Steam/Xbox/PSN work from the phone.
     const ctx = { db: store.db, events: createEventBus(store.db), fetch: (...a) => fetch(...a) };
+    // Just switched accounts: this library is theirs, signed in.
+    try {
+      const pending = JSON.parse(localStorage.getItem('128bit.tracker.pending-account') || 'null');
+      if (pending) {
+        localStorage.removeItem('128bit.tracker.pending-account');
+        familyAdopt(ctx, pending);
+        await store.flush?.();
+        store.scheduleSave();
+      }
+    } catch (err) {
+      console.warn('switch account:', err.message);
+    }
+    // Remember whose library this is, so switching back finds it.
+    try {
+      const owner = JSON.parse(store.db.prepare("SELECT value FROM kv WHERE key = 'cloud.owner'").get()?.value ?? 'null');
+      if (owner) {
+        const known = JSON.parse(localStorage.getItem('128bit.tracker.dbs') || '{}');
+        if (!known[owner]) {
+          known[owner] = activeDbKey();
+          localStorage.setItem('128bit.tracker.dbs', JSON.stringify(known));
+        }
+      }
+    } catch { /* no storage */ }
     const sync = createSync(ctx, { scheduleSave: store.scheduleSave });
     const reminders = createReminders(ctx);
     const updates = createUpdates();
@@ -38,6 +63,26 @@ function boot() {
       return res;
     });
     r.get('/api/v1/app/update', null, () => updates.check());
+    r.post('/api/v1/app/open-url', null, async ({ body }) => {
+      const url = String(body?.url ?? '');
+      if (!/^https:\/\//.test(url)) throw new HttpError(400, 'https links only');
+      await Browser.open({ url });
+      return [204];
+    });
+    // Another account signing in: open (or create) that account's own library and restart into it.
+    r.post('/api/v1/device/switch-account', null, async ({ body }) => {
+      const account = body?.account;
+      if (!account?.user_id || !account.refresh) throw new HttpError(400, 'no account to switch to');
+      await store.flush();
+      const known = JSON.parse(localStorage.getItem('128bit.tracker.dbs') || '{}');
+      const key = known[account.user_id] ?? `tracker-${account.user_id}.db`;
+      known[account.user_id] = key;
+      localStorage.setItem('128bit.tracker.dbs', JSON.stringify(known));
+      localStorage.setItem('128bit.tracker.pending-account', JSON.stringify(account));
+      setActiveDbKey(key);
+      setTimeout(() => location.reload(), 50);
+      return [202, { switching: true }];
+    });
     r.post('/api/v1/app/open-update', null, async ({ body }) => (await updates.open(body?.url), [204]));
     r.post('/api/v1/share-file', null, async ({ body }) => {
       const name = String(body?.name ?? 'export.json').replace(/[^\w.-]+/g, '_');

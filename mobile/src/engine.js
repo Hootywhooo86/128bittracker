@@ -6,7 +6,16 @@ import { adapt } from './adapter.js';
 
 const IDB_NAME = '128bittracker';
 const IDB_STORE = 'files';
-const IDB_KEY = 'tracker.db';
+// One database per 128bit account on this phone (see transport.js switchAccount):
+// the first library is tracker.db, later accounts get tracker-<user id>.db.
+const DB_KEY = '128bit.tracker.db';
+export const activeDbKey = () => {
+  try { return localStorage.getItem(DB_KEY) || 'tracker.db'; } catch { return 'tracker.db'; }
+};
+export const setActiveDbKey = (key) => {
+  try { localStorage.setItem(DB_KEY, key); } catch { /* private mode: stays on the default */ }
+};
+let IDB_KEY = 'tracker.db';
 
 function idb() {
   return new Promise((resolve, reject) => {
@@ -36,7 +45,8 @@ async function idbPut(bytes) {
   });
 }
 
-export async function openDevice({ wasmUrl = '/sql-wasm-browser.wasm' } = {}) {
+export async function openDevice({ wasmUrl = '/sql-wasm-browser.wasm', key = activeDbKey() } = {}) {
+  IDB_KEY = key;
   const SQL = await initSqlJs({ locateFile: () => wasmUrl });
   const saved = await idbGet();
   const raw = saved ? new SQL.Database(new Uint8Array(saved)) : new SQL.Database();

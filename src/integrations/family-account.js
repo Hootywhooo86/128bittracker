@@ -11,6 +11,8 @@ import { HttpError } from '../api/errors.js';
 import { ingest } from './index.js';
 import { enrichEpisode } from './enrich.js';
 import { cloudSync, cloudStatus, cloudEnabled, cloudOwner, setProfile } from './cloud.js';
+import { refreshConnections } from './hub.js';
+import { writeBack } from './writeback.js';
 import { tx } from '../db/tx.js';
 
 // The family project. Its publishable key is meant to be public; the tables
@@ -329,6 +331,11 @@ export function familySync(ctx) {
       const pulled = await pull(ctx);
       const a = account(ctx);
       const cloud = await cloudSync(ctx, { rpc: (fn, args) => rpc(ctx, fn, args), userId: a?.user_id });
+      // Connected services (Connect buttons): what changed here goes back to them.
+      if (cloud.error === undefined) {
+        await refreshConnections(ctx);
+        await writeBack(ctx).catch(() => {});
+      }
       const s = state(ctx);
       setState(ctx, {
         last_sync_at: new Date().toISOString(),
@@ -349,3 +356,6 @@ export function familySync(ctx) {
 }
 
 export const familyRpc = rpc;
+/** The signed-in account with a fresh access token, for other 128bit services (Connect). */
+export const familySession = token;
+export const familySignedIn = (ctx) => !!account(ctx)?.refresh;

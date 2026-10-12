@@ -8,15 +8,15 @@ const ACHIEVEMENT_CHECKS_PER_SYNC = 60; // the rest catch up on later syncs
 export const steam = {
   label: 'Steam',
   official: true,
-  help: 'Get a free Web API key at steamcommunity.com/dev/apikey. Your profile and its "Game details" must be public.',
+  help: 'Your Steam profile. Signed in to your 128bit account? That\'s all you need. Otherwise add a free Web API key from steamcommunity.com/dev/apikey. Your profile and its "Game details" must be public.',
   fields: [
-    { key: 'api_key', label: 'Steam Web API key', secret: true, required: true },
+    { key: 'api_key', label: 'Steam Web API key', secret: true, required: true, hub: true },
     { key: 'profile', label: 'Steam profile (URL, custom name or 17-digit ID)', required: true },
   ],
 
   async sync(config, { fetch, upsert, remember, state }) {
     const get = async (path, params) => {
-      const url = `${API}${path}?${new URLSearchParams({ key: config.api_key, format: 'json', ...params })}`;
+      const url = `${API}${path}?${new URLSearchParams({ key: config.api_key ?? '', format: 'json', ...params })}`;
       const res = await fetch(url);
       if (res.status === 403 || res.status === 401) throw new Error('Steam rejected the API key');
       if (!res.ok) throw new Error(`Steam answered HTTP ${res.status}`);
@@ -41,7 +41,7 @@ export const steam = {
       .slice(0, ACHIEVEMENT_CHECKS_PER_SYNC);
     const cached = state.achievements ?? {};
     for (const g of toCheck) {
-      cached[g.appid] = await achievementsFor(g.appid, steamid, config.api_key, fetch);
+      cached[g.appid] = await achievementsFor(g.appid, steamid, config.api_key ?? '', fetch);
       checked[g.appid] = g.playtime_forever;
     }
     remember({ achievements_checked: checked, achievements: cached });

@@ -14,17 +14,18 @@ export const trakt = {
   group: 'media',
   icon: '🍿',
   official: true,
-  help: 'Make a free app at trakt.tv/oauth/applications (redirect uri: urn:ietf:wg:oauth:2.0:oob) and paste its Client ID. Your Trakt profile must be public.',
+  oauth: 'trakt',
+  help: 'Tap Connect and sign in to Trakt: your history, ratings and watchlist come in (private profiles too), and what you watch goes back. Or enter a public username (plus a Client ID from trakt.tv/oauth/applications without a 128bit account).',
   fields: [
-    { key: 'client_id', label: 'Trakt Client ID', secret: true, required: true },
-    { key: 'username', label: 'Trakt username', required: true },
+    { key: 'client_id', label: 'Trakt Client ID', secret: true, required: true, hub: true },
+    { key: 'username', label: 'Trakt username', required: true, oauth: true },
   ],
 
   async sync(config, { fetch, upsertMedia, remember, state }) {
-    const user = encodeURIComponent(String(config.username).trim().replace(/^.*trakt\.tv\/users\//, '').replace(/\/.*$/, ''));
+    const user = config.username ? encodeURIComponent(String(config.username).trim().replace(/^.*trakt\.tv\/users\//, '').replace(/\/.*$/, '')) : 'me';
     const get = async (path) => {
       const res = await fetch(`${API}${path}`, {
-        headers: { 'Content-Type': 'application/json', 'trakt-api-version': '2', 'trakt-api-key': config.client_id },
+        headers: { 'Content-Type': 'application/json', 'trakt-api-version': '2', 'trakt-api-key': config.client_id ?? '' },
       });
       if (res.status === 401 || res.status === 403) throw new Error('Trakt rejected the Client ID, or the profile is private');
       if (res.status === 404) throw new Error(`no Trakt user "${decodeURIComponent(user)}"`);

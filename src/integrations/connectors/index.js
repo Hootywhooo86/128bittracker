@@ -17,6 +17,8 @@ import { hardcover } from './hardcover.js';
 import { letterboxd } from './letterboxd.js';
 import { goodreads } from './goodreads.js';
 import { lastfm } from './lastfm.js';
+import { hubOn, isConnected, routedFetch } from '../hub.js';
+import { payloadFor, rememberSent } from '../writeback.js';
 
 export const CONNECTORS = { steam, xbox, psn, retroachievements, anilist, mal, trakt, hardcover, letterboxd, goodreads, lastfm };
 
@@ -39,9 +41,21 @@ function connector(name) {
   return c;
 }
 
+/**
+ * Fields still needed. With the 128bit account signed in, keys marked `hub`
+ * come from 128bit Connect; with the service connected (Connect button),
+ * fields marked `oauth` (the username) aren't needed either.
+ */
+function missingFields(ctx, c, config) {
+  const hub = hubOn(ctx);
+  const connected = !!c.oauth && hub && isConnected(ctx, c.oauth);
+  return c.fields.filter((f) => f.required && !config[f.key] && !(f.hub && hub) && !(f.oauth && connected));
+}
+
 /** Public view: never returns secret values, only whether they're set. */
-function present(name, c, state) {
+function present(ctx, name, c, state) {
   const config = state?.config ?? {};
+  const hub = hubOn(ctx);
   return {
     name,
     label: c.label,
@@ -50,8 +64,14 @@ function present(name, c, state) {
     official: c.official,
     warning: c.warning ?? null,
     help: c.help,
-    fields: c.fields.map((f) => ({ ...f, value: f.secret ? undefined : config[f.key] ?? '', set: config[f.key] != null && config[f.key] !== '' })),
-    configured: c.fields.filter((f) => f.required).every((f) => config[f.key]),
+    fields: c.fields.map((f) => ({
+      ...f, value: f.secret ? undefined : config[f.key] ?? '', set: config[f.key] != null && config[f.key] !== '',
+      optional: !!(f.hub && hub) || !!(f.oauth && c.oauth && hub && isConnected(ctx, c.oauth)),
+    })),
+    oauth: c.oauth ?? null,
+    connected: !!c.oauth && hub && isConnected(ctx, c.oauth),
+    hub,
+    configured: missingFields(ctx, c, config).length === 0 && (c.fields.some((f) => config[f.key]) || (!!c.oauth && hub && isConnected(ctx, c.oauth))),
     last_sync_at: state?.last_sync_at ?? null,
     last_result: state?.last_result ?? null,
     last_error: state?.last_error ?? null,
@@ -59,7 +79,7 @@ function present(name, c, state) {
 }
 
 export function listConnectors(ctx) {
-  return Object.entries(CONNECTORS).map(([name, c]) => present(name, c, load(ctx, name)));
+  return Object.entries(CONNECTORS).map(([name, c]) => present(ctx, name, c, load(ctx, name)));
 }
 
 export function configureConnector(ctx, name, input = {}) {
@@ -76,7 +96,7 @@ export function configureConnector(ctx, name, input = {}) {
   if (c.accepted && input.accept_risk !== undefined) config.accept_risk = !!input.accept_risk;
   // New credentials invalidate cached tokens.
   save(ctx, name, { ...state, config, tokens: null, last_error: null });
-  return present(name, c, load(ctx, name));
+  return present(ctx, name, c, load(ctx, name));
 }
 
 export function removeConnector(ctx, name) {
@@ -89,11 +109,11 @@ export async function syncConnector(ctx, name) {
   const c = connector(name);
   const state = load(ctx, name) ?? {};
   const config = state.config ?? {};
-  const missing = c.fields.filter((f) => f.required && !config[f.key]);
+  const missing = missingFields(ctx, c, config);
   if (missing.length) throw new HttpError(400, `${c.label}: set ${missing.map((f) => f.label).join(', ')} first`);
   if (c.warning && !config.accept_risk) throw new HttpError(400, `${c.label}: accept the risk notice first`);
 
-  const fetchImpl = ctx.fetch ?? globalThis.fetch;
+  const fetchImpl = routedFetch(ctx);
   const summary = { items: 0, games: 0, added: 0, updated: 0, minutes: 0, perfect: 0, new_trophies: [] };
   const helpers = {
     fetch: fetchImpl,
@@ -204,5 +224,8 @@ function upsertMedia(ctx, source, entry, summary) {
     ctx.db.prepare('UPDATE items SET finished_at = ? WHERE id = ?').run(entry.finished_at, item.id);
   }
   if (item.new_trophy) summary.new_trophies.push(item.new_trophy);
+  // Came from this service: it already has it, so two-way sync won't send it back.
+  const p = payloadFor(source, getItem(ctx, item.id));
+  if (p) rememberSent(ctx, item.id, source, p);
   return item;
 }

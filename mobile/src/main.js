@@ -14,7 +14,20 @@ App.addListener('backButton', ({ canGoBack }) => {
 // Back from Google / Apple sign-in: app.bit128.tracker://auth?code=…
 App.addListener('appUrlOpen', async ({ url }) => {
   const u = new URL(url);
-  if (u.host !== 'auth' && u.pathname.replace(/^\/+/, '') !== 'auth') return;
+  const where = u.host || u.pathname.replace(/^\/+/, '').split('/')[0];
+  if (where === 'connect') {
+    // Back from AniList / Trakt / MAL (128bit Connect).
+    const { Browser } = await import('@capacitor/browser');
+    Browser.close().catch(() => {});
+    const { request } = await import('./transport.js');
+    const service = u.searchParams.get('service');
+    if (!u.searchParams.get('ok')) return alert(`Couldn't connect: ${u.searchParams.get('error') ?? 'cancelled'}`);
+    await request('GET', '/connect');
+    if (service) await request('POST', `/connectors/${service}/sync`, {});
+    window.dispatchEvent(new CustomEvent('tracker:synced'));
+    return;
+  }
+  if (where !== 'auth') return;
   const { Browser } = await import('@capacitor/browser');
   Browser.close().catch(() => {});
   const { request } = await import('./transport.js');

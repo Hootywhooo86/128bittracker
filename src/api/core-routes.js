@@ -13,6 +13,7 @@ import { searchTitles, showSeasons } from '../integrations/metadata.js';
 import { importFile } from '../integrations/imports.js';
 import * as family from '../integrations/family-account.js';
 import { upcoming } from '../integrations/calendar.js';
+import * as hub from '../integrations/hub.js';
 
 export const API_VERSION = '1';
 
@@ -107,6 +108,9 @@ export function addCoreRoutes(r, ctx) {
   r.post('/api/v1/family/oauth/finish', 'write', ({ body }) => family.familyOAuthFinish(ctx, body ?? {}));
   r.post('/api/v1/family/profile', 'write', ({ body }) => family.familyProfile(ctx, body ?? {}));
   r.get('/api/v1/upnext', 'read', () => library.upNext(ctx));
+  r.get('/api/v1/connect', 'read', () => hub.hubStatus(ctx));
+  r.post('/api/v1/connect/start', 'write', ({ body }) => hub.connectStart(ctx, body ?? {}));
+  r.post('/api/v1/connect/disconnect', 'write', ({ body }) => hub.connectRemove(ctx, body ?? {}));
   r.get('/api/v1/calendar', 'read', ({ query }) => upcoming(ctx, { refresh: query.refresh === '1' }));
   r.get('/api/v1/trophies', 'read', () => ({ trophies: trophies.listTrophies(ctx), counts: trophies.trophyCounts(ctx), kinds: trophies.TROPHIES }));
   r.get('/api/v1/export', 'read', () => exportAll(db));

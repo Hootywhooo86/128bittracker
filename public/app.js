@@ -903,6 +903,16 @@ async function finishWebOAuth() {
   const q = new URLSearchParams(location.search);
   const code = q.get('code');
   const error = q.get('error_description');
+  const connected = q.get('connected');
+  if (connected && (q.get('ok') || q.get('error'))) {
+    history.replaceState(null, '', location.pathname);
+    if (q.get('ok')) {
+      await api('GET', '/connect').catch(() => {});
+      toast(`✓ CONNECTED${q.get('account') ? ' AS ' + q.get('account').toUpperCase() : ''} · SYNCING`);
+      api('POST', `/connectors/${connected}/sync`, {}).then(refresh).catch(() => {});
+    } else toast(`CONNECT FAILED: ${q.get('error')}`.toUpperCase(), true);
+    return;
+  }
   if (!code && !error) return;
   history.replaceState(null, '', location.pathname);
   if (error) return toast(error.toUpperCase(), true);
@@ -929,13 +939,18 @@ async function renderPlatforms(el, group = 'games') {
   el.innerHTML = list.map((c) => `<details class="platform">
     <summary><span class="platform-name">${c.icon ?? PLATFORM_ICON[c.name] ?? '🎮'} ${esc(c.label)}</span>
       ${c.official ? '' : '<span class="pill">UNOFFICIAL</span>'}
-      <span class="muted platform-state">${c.last_error ? '⚠ error' : c.last_sync_at ? `synced ${new Date(c.last_sync_at).toLocaleDateString()}` : c.configured ? 'ready' : 'not connected'}</span></summary>
+      <span class="muted platform-state">${c.connected ? '✓ connected' : c.last_error ? '⚠ error' : c.last_sync_at ? `synced ${new Date(c.last_sync_at).toLocaleDateString()}` : c.configured ? 'ready' : 'not connected'}</span></summary>
     <form data-conn="${c.name}">
       <p class="muted" style="font-size:13px;line-height:1.6;margin-bottom:12px">${esc(c.help)}</p>
+      ${c.oauth ? (c.connected
+        ? `<p style="margin-bottom:12px">✓ Connected to ${esc(c.label)}. Changes here go back to it. <button type="button" class="btn ghost small" data-oauth-off="${c.oauth}">UNLINK</button></p>`
+        : c.hub ? `<div class="row" style="margin-bottom:12px"><button type="button" class="btn teal" data-oauth="${c.oauth}">CONNECT ${esc(c.label.toUpperCase())}</button></div><p class="muted" style="font-size:12px;margin-bottom:10px">Or by username:</p>`
+        : `<p class="muted" style="font-size:12px;margin-bottom:10px">Sign in to your 128bit account (above) for one-tap Connect.</p>`) : ''}
       ${c.warning ? `<p class="nudge" style="line-height:1.6">⚠ ${esc(c.warning)}</p>` : ''}
-      ${c.fields.map((f) => `<div class="field"><label for="cf-${c.name}-${f.key}">${esc(f.label.toUpperCase())}</label>
+      ${c.fields.filter((f) => !(f.hub && f.optional && !f.set) || c.showKeys).map((f) => `<div class="field"><label for="cf-${c.name}-${f.key}">${esc(f.label.toUpperCase())}${f.optional ? ' <span class="muted">(OPTIONAL)</span>' : ''}</label>
         <input class="input" id="cf-${c.name}-${f.key}" name="${f.key}" ${f.secret ? 'type="password" autocomplete="off"' : ''}
-          value="${f.secret ? '' : esc(f.value ?? '')}" placeholder="${f.secret && f.set ? 'saved — paste to replace' : ''}"></div>`).join('')}
+          value="${f.secret ? '' : esc(f.value ?? '')}" placeholder="${f.secret && f.set ? 'saved — paste to replace' : f.optional && f.oauth ? 'not needed: connected' : ''}"></div>`).join('')}
+      ${c.fields.some((f) => f.hub && f.optional && !f.set) ? '<p class="muted" style="font-size:12px;margin-bottom:10px">✓ No key needed: 128bit Connect lends its own.</p>' : ''}
       ${c.warning ? `<label class="row" style="font-size:13px;margin-bottom:12px;gap:8px"><input type="checkbox" name="accept_risk" ${c.fields && c.configured ? '' : ''}> I understand the risk</label>` : ''}
       ${c.last_result ? `<p class="muted" style="font-size:12px;margin-bottom:10px">Last sync: ${syncSummary({ items: c.last_result.games, ...c.last_result }, group)}</p>` : ''}
       ${c.last_error ? `<p class="nudge">Last error: ${esc(c.last_error)}</p>` : ''}
@@ -944,6 +959,17 @@ async function renderPlatforms(el, group = 'games') {
         ${c.configured ? '<button type="button" class="btn ghost small" data-conn-remove>DISCONNECT</button>' : ''}</div>
     </form></details>`).join('');
 
+  el.querySelectorAll('[data-oauth]').forEach((b) => b.addEventListener('click', guard(async () => {
+    const return_to = platform === 'web' ? `${location.origin}/connect?connected=${b.dataset.oauth}` : 'app.bit128.tracker://connect';
+    const { url } = await api('POST', '/connect/start', { service: b.dataset.oauth, return_to });
+    if (platform === 'web') location.href = url;
+    else await api('POST', '/app/open-url', { url });
+  })));
+  el.querySelectorAll('[data-oauth-off]').forEach((b) => b.addEventListener('click', guard(async () => {
+    if (!confirm('Unlink? Tracker stops sending changes there. Everything already synced stays.')) return;
+    await api('POST', '/connect/disconnect', { service: b.dataset.oauthOff });
+    await renderPlatforms(el, group);
+  })));
   el.querySelectorAll('form[data-conn]').forEach((form) => {
     const name = form.dataset.conn;
     form.addEventListener('submit', guard(async (e) => {

@@ -133,6 +133,17 @@ set role anon;
 select pg_temp.expect(public.get_public_list((select id from share)) is null, 'private again');
 select pg_temp.expect(public.get_public_profile('pixelfan') is null, 'profile private again');
 
+-- Shared-key lookups are counted per account, and only the Edge Function may count them.
+reset role;
+set role authenticated;
+do $$ begin perform public.tracker_bump_usage('bbbbbbbb-0000-0000-0000-000000000002', 'tmdb'); raise exception 'FAILED: a person bumped usage';
+exception when insufficient_privilege then null; end $$;
+reset role;
+set role service_role;
+select pg_temp.expect(public.tracker_bump_usage('aaaaaaaa-0000-0000-0000-000000000001', 'tmdb') = 1, 'first lookup');
+select pg_temp.expect(public.tracker_bump_usage('aaaaaaaa-0000-0000-0000-000000000001', 'tmdb') = 2, 'counted');
+reset role;
+
 -- Deleting the account deletes everything.
 reset role;
 select pg_temp.as_user('aaaaaaaa-0000-0000-0000-000000000001');

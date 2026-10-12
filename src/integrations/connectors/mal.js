@@ -12,21 +12,22 @@ export const mal = {
   group: 'media',
   icon: '📘',
   official: true,
-  help: 'Make a free Client ID at myanimelist.net/apiconfig (App type: other, any redirect URL). Your list must be public.',
+  oauth: 'mal',
+  help: 'Tap Connect and sign in to MyAnimeList: that\'s it, and Tracker keeps your list up to date both ways. Or enter a public username (plus a Client ID from myanimelist.net/apiconfig without a 128bit account).',
   fields: [
-    { key: 'client_id', label: 'MAL Client ID', secret: true, required: true },
-    { key: 'username', label: 'MAL username', required: true },
+    { key: 'client_id', label: 'MAL Client ID', secret: true, required: true, hub: true },
+    { key: 'username', label: 'MAL username', required: true, oauth: true },
   ],
 
   async sync(config, { fetch, upsertMedia }) {
-    const user = encodeURIComponent(String(config.username).trim().replace(/^.*myanimelist\.net\/profile\//, ''));
+    const user = config.username ? encodeURIComponent(String(config.username).trim().replace(/^.*myanimelist\.net\/profile\//, '')) : '@me';
     for (const kind of ['anime', 'manga']) {
       const fields = kind === 'anime'
         ? 'list_status,num_episodes,start_season,main_picture,studios,media_type'
         : 'list_status,num_chapters,start_date,main_picture,authors{first_name,last_name},media_type';
       let url = `${API}/users/${user}/${kind}list?${new URLSearchParams({ fields, limit: '1000', nsfw: 'true' })}`;
       for (let page = 0; url && page < MAX_PAGES; page++) {
-        const res = await fetch(url, { headers: { 'X-MAL-CLIENT-ID': config.client_id } });
+        const res = await fetch(url, { headers: { 'X-MAL-CLIENT-ID': config.client_id ?? '' } });
         if (res.status === 401 || res.status === 400) throw new Error('MyAnimeList rejected the Client ID');
         if (res.status === 403 || res.status === 404) throw new Error(`couldn't read ${decodeURIComponent(user)}'s ${kind} list: is it public?`);
         if (!res.ok) throw new Error(`MyAnimeList answered HTTP ${res.status}`);

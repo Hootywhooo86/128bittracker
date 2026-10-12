@@ -21,11 +21,18 @@ export const anilist = {
   group: 'media',
   icon: '🌸',
   official: true,
-  help: 'Your AniList username. Your anime and manga lists must be public (they are by default). No key needed.',
-  fields: [{ key: 'username', label: 'AniList username', required: true }],
+  help: 'Tap Connect and sign in to AniList: your lists come in and your progress goes back. Or just enter a public username.',
+  oauth: 'anilist',
+  fields: [{ key: 'username', label: 'AniList username', required: true, oauth: true }],
 
   async sync(config, { fetch, upsertMedia }) {
-    const user = String(config.username).trim().replace(/^.*anilist\.co\/user\//, '').replace(/\/.*$/, '');
+    let user = config.username ? String(config.username).trim().replace(/^.*anilist\.co\/user\//, '').replace(/\/.*$/, '') : null;
+    if (!user) {
+      // Connected with the Connect button: whose lists are these?
+      const res = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify({ query: '{ Viewer { name } }' }) });
+      user = (await res.json().catch(() => null))?.data?.Viewer?.name;
+      if (!user) throw new Error('AniList: connect again, or enter your username');
+    }
     for (const type of ['ANIME', 'MANGA']) {
       const res = await fetch(API, {
         method: 'POST',

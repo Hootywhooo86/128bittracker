@@ -7,14 +7,14 @@ export const lastfm = {
   group: 'media',
   icon: '🎧',
   official: true,
-  help: 'Make a free API key at last.fm/api/account/create (only the name is required) and enter your Last.fm username. Adds your top 200 albums with play counts.',
+  help: 'Your Last.fm username. Adds your top 200 albums with play counts. Without a 128bit account, also add a free API key from last.fm/api/account/create.',
   fields: [
-    { key: 'api_key', label: 'Last.fm API key', secret: true, required: true },
+    { key: 'api_key', label: 'Last.fm API key', secret: true, required: true, hub: true },
     { key: 'username', label: 'Last.fm username', required: true },
   ],
 
   async sync(config, { fetch, upsertMedia }) {
-    const url = `${API}?${new URLSearchParams({ method: 'user.gettopalbums', user: config.username.trim(), api_key: config.api_key, period: 'overall', limit: String(ALBUMS), format: 'json' })}`;
+    const url = `${API}?${new URLSearchParams({ method: 'user.gettopalbums', user: config.username.trim(), api_key: config.api_key ?? '', period: 'overall', limit: String(ALBUMS), format: 'json' })}`;
     const res = await fetch(url);
     const body = await res.json().catch(() => null);
     if (body?.error === 10 || body?.error === 26) throw new Error('Last.fm rejected the API key');

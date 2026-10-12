@@ -8,18 +8,25 @@
 //   movie         TMDB if a key is set, else iTunes (thin outside some regions)
 //   game          IGDB if keys are set, else the Steam store
 //
+// Signed in to a 128bit account, TMDB and IGDB work without your own keys
+// (128bit Connect lends its own, see hub.js).
+//
 // Every result: { title, creator, year, cover_url, progress_total, provider, provider_id, meta }
 import { HttpError } from '../api/errors.js';
 import { serviceConfig, rememberService } from './services.js';
+import { hubOn, routedFetch } from './hub.js';
 
 const LIMIT = 10;
 
 export async function searchTitles(ctx, { type, q }) {
   const query = String(q ?? '').trim();
   if (query.length < 2) throw new HttpError(400, 'type at least 2 characters');
-  const fetch = ctx.fetch ?? globalThis.fetch;
-  const tmdb = serviceConfig(ctx, 'tmdb').token;
+  const fetch = routedFetch(ctx);
+  const hub = hubOn(ctx);
+  // '' = no key of our own: the request goes through 128bit Connect.
+  const tmdb = serviceConfig(ctx, 'tmdb').token || (hub ? '' : null);
   const igdb = serviceConfig(ctx, 'igdb');
+  const igdbReady = (igdb.client_id && igdb.client_secret) || hub;
   try {
     switch (type) {
       case 'book': return await openLibrary(fetch, query);
@@ -27,9 +34,9 @@ export async function searchTitles(ctx, { type, q }) {
       case 'manga': return await anilist(fetch, query, 'MANGA');
       case 'podcast': return await itunes(fetch, query, { media: 'podcast' });
       case 'music': return await itunes(fetch, query, { media: 'music', entity: 'album' });
-      case 'movie': return tmdb ? await tmdbSearch(fetch, tmdb, query, 'movie') : await itunes(fetch, query, { media: 'movie' });
-      case 'show': return tmdb ? await tmdbSearch(fetch, tmdb, query, 'tv') : await tvmaze(fetch, query);
-      case 'game': return igdb.client_id && igdb.client_secret ? await igdbSearch(ctx, fetch, igdb, query) : await steamStore(fetch, query);
+      case 'movie': return tmdb != null ? await tmdbSearch(fetch, tmdb, query, 'movie') : await itunes(fetch, query, { media: 'movie' });
+      case 'show': return tmdb != null ? await tmdbSearch(fetch, tmdb, query, 'tv') : await tvmaze(fetch, query);
+      case 'game': return igdbReady ? await igdbSearch(ctx, fetch, igdb, query) : await steamStore(fetch, query);
       default: return [];
     }
   } catch (err) {
@@ -114,14 +121,14 @@ async function tvmaze(fetch, q) {
 
 /** Seasons of a show with episode counts, so a season can be tracked (and trophied). */
 export async function showSeasons(ctx, { provider, id }) {
-  const fetch = ctx.fetch ?? globalThis.fetch;
+  const fetch = routedFetch(ctx);
   if (provider === 'tvmaze') {
     const list = await getJson(fetch, `https://api.tvmaze.com/shows/${encodeURIComponent(id)}/seasons`);
     return list.map((s) => ({ number: s.number, episodes: s.episodeOrder ?? null, year: Number((s.premiereDate ?? '').slice(0, 4)) || null, cover_url: s.image?.original ?? null }));
   }
   if (provider === 'tmdb') {
-    const token = serviceConfig(ctx, 'tmdb').token;
-    if (!token) throw new HttpError(400, 'add a TMDB key first');
+    const token = serviceConfig(ctx, 'tmdb').token || (hubOn(ctx) ? '' : null);
+    if (token == null) throw new HttpError(400, 'add a TMDB key first');
     const v4 = token.length > 40;
     const j = await getJson(fetch, `https://api.themoviedb.org/3/tv/${encodeURIComponent(id)}${v4 ? '' : `?api_key=${token}`}`, {
       headers: v4 ? { Authorization: `Bearer ${token}`, Accept: 'application/json' } : { Accept: 'application/json' },
@@ -164,6 +171,10 @@ export async function igdbToken(ctx, fetch, cfg) {
 }
 
 export async function igdbQuery(ctx, fetch, cfg, endpoint, body) {
+  if (!cfg.client_id || !cfg.client_secret) {
+    // No keys of our own: 128bit Connect adds its own (routedFetch).
+    return getJson(fetch, `https://api.igdb.com/v4/${endpoint}`, { method: 'POST', headers: { Accept: 'application/json', 'Content-Type': 'text/plain' }, body });
+  }
   const token = await igdbToken(ctx, fetch, cfg);
   return getJson(fetch, `https://api.igdb.com/v4/${endpoint}`, {
     method: 'POST',

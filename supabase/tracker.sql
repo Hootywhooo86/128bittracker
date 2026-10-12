@@ -439,6 +439,14 @@ language sql security definer set search_path = public as $$
 $$;
 
 
+-- Counts one lookup made with 128bit's shared keys (the connect Edge Function's daily limit).
+create or replace function public.tracker_bump_usage(who uuid, svc text) returns int
+language sql security definer set search_path = public as $$
+  insert into tracker_proxy_usage (user_id, day, service, count) values (who, current_date, left(svc, 40), 1)
+  on conflict (user_id, day, service) do update set count = tracker_proxy_usage.count + 1
+  returning count
+$$;
+
 -- ---------- Watching in any 128bit app updates the library, even with Tracker closed ----------
 -- 128bitPlay posts movie.watched / episode.watched / book.finished / chapter.read to the family
 -- feed. This applies them here: the season's progress moves on, the last episode finishes it.
@@ -539,4 +547,7 @@ grant execute on function public.tracker_push(jsonb), public.tracker_pull(timest
   public.set_profile(text, text, boolean), public.tracker_connections_status(), public.tracker_disconnect(text) to authenticated;
 -- Shared lists and public profiles open without signing in, and only when their owner made them public.
 grant execute on function public.get_public_list(text), public.get_public_profile(text) to anon, authenticated;
+-- Only the connect Edge Function (service role) counts lookups.
+revoke all on function public.tracker_bump_usage(uuid, text) from public, anon, authenticated;
+grant execute on function public.tracker_bump_usage(uuid, text) to service_role;
 -- End of the tracker block.

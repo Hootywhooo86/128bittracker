@@ -7,15 +7,15 @@ export const retroachievements = {
   label: 'RetroAchievements',
   icon: '👾',
   official: true,
-  help: 'Your username and Web API key from retroachievements.org/settings (Keys section). Pulls every game you have achievements in; mastered games earn the golden controller.',
+  help: 'Your RetroAchievements username. Pulls every game you have achievements in; mastered games earn the golden controller. Without a 128bit account, also add your Web API key from retroachievements.org/settings.',
   fields: [
     { key: 'username', label: 'RetroAchievements username', required: true },
-    { key: 'api_key', label: 'Web API key', secret: true, required: true },
+    { key: 'api_key', label: 'Web API key', secret: true, required: true, hub: true },
   ],
 
   async sync(config, { fetch, upsert }) {
     for (let offset = 0; offset < 20 * PAGE; offset += PAGE) {
-      const url = `${API}/API_GetUserCompletionProgress.php?${new URLSearchParams({ u: config.username.trim(), y: config.api_key, c: String(PAGE), o: String(offset) })}`;
+      const url = `${API}/API_GetUserCompletionProgress.php?${new URLSearchParams({ u: config.username.trim(), y: config.api_key ?? '', c: String(PAGE), o: String(offset) })}`;
       const res = await fetch(url);
       if (res.status === 401 || res.status === 403) throw new Error('RetroAchievements rejected the username / API key');
       if (!res.ok) throw new Error(`RetroAchievements answered HTTP ${res.status}`);

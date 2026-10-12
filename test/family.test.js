@@ -1,0 +1,138 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { openDb } from '../src/db/index.js';
+import { createEventBus } from '../src/domain/events.js';
+import { listItems } from '../src/domain/library.js';
+import { createTracker, logTracker, getTracker } from '../src/domain/trackers.js';
+import { trophyCounts } from '../src/domain/trophies.js';
+import { familySignIn, familySync, familyStatus, familySignOut, FAMILY } from '../src/integrations/family-account.js';
+
+const json = (b, status = 200) => new Response(JSON.stringify(b), { status, headers: { 'content-type': 'application/json' } });
+
+/** A tiny fake of the family Supabase project: auth + get_events/log_events. */
+function fakeFamily() {
+  const feed = []; // newest first, like get_events
+  const posted = [];
+  let tokenN = 0;
+  const calls = [];
+  const fetch = async (url, init = {}) => {
+    const u = String(url);
+    calls.push(u);
+    if (u.startsWith('https://api.tvmaze.com/singlesearch')) {
+      return json({ id: 1, name: 'Severance', _embedded: { seasons: [{ number: 1, episodeOrder: 2 }, { number: 2, episodeOrder: 10 }] } });
+    }
+    assert.ok(u.startsWith(FAMILY.url), u);
+    assert.equal(init.headers.apikey, FAMILY.key);
+    const body = init.body ? JSON.parse(init.body) : {};
+    if (u.endsWith('/auth/v1/token?grant_type=password')) {
+      if (body.password !== 'hunter22') return json({ error_description: 'Invalid login credentials' }, 400);
+      return json({ access_token: `AT${++tokenN}`, refresh_token: 'RT', expires_in: 3600, user: { id: 'u1', email: body.email } });
+    }
+    if (u.endsWith('/auth/v1/token?grant_type=refresh_token')) return json({ access_token: `AT${++tokenN}`, refresh_token: 'RT2', expires_in: 3600 });
+    if (u.endsWith('/auth/v1/logout')) return new Response(null, { status: 204 });
+    assert.match(init.headers.Authorization, /^Bearer AT\d+$/);
+    if (u.endsWith('/rest/v1/rpc/get_events')) {
+      const list = feed.filter((e) => body.before_ms == null || e.at < body.before_ms).slice(0, body.max_rows);
+      return json(list);
+    }
+    if (u.endsWith('/rest/v1/rpc/log_events')) {
+      posted.push(...body.events);
+      for (const e of body.events) feed.unshift(e);
+      return json(body.events.length);
+    }
+    return json({ message: 'not found' }, 404);
+  };
+  const add = (e) => { feed.unshift({ at: Date.now(), data: {}, ...e }); feed.sort((a, b) => b.at - a.at); };
+  return { fetch, feed, posted, add, calls };
+}
+
+function ctxFor(fam) {
+  const db = openDb(':memory:');
+  return { db, events: createEventBus(db), fetch: fam.fetch };
+}
+
+test('sign in with the family account; wrong password is a clear 400', async () => {
+  const fam = fakeFamily();
+  const ctx = ctxFor(fam);
+  await assert.rejects(() => familySignIn(ctx, { email: 'me@x.com', password: 'nope' }), /Invalid login credentials/);
+  const s = await familySignIn(ctx, { email: 'me@x.com', password: 'hunter22' });
+  assert.equal(s.signed_in, true);
+  assert.equal(s.email, 'me@x.com');
+  assert.equal(s.project, null, 'uses the 128bit family project by default');
+});
+
+test('pull: Play media + Fit workouts land in the library and habits; season finale earns the golden TV', async () => {
+  const fam = fakeFamily();
+  const ctx = ctxFor(fam);
+  const workout = createTracker(ctx, { preset: 'workout' });
+  await familySignIn(ctx, { email: 'me@x.com', password: 'hunter22' });
+  const t0 = Date.now() - 60_000;
+  fam.add({ id: 'p1', app: 'play', type: 'movie.watched', at: t0, data: { title: 'Alien' } });
+  fam.add({ id: 'p2', app: 'play', type: 'book.finished', at: t0 + 1, data: { title: 'Dune', author: 'Frank Herbert' } });
+  fam.add({ id: 'p3', app: 'play', type: 'episode.watched', at: t0 + 2, data: { show: 'Severance', episode: 'S1 E1 · Good News About Hell' } });
+  fam.add({ id: 'p4', app: 'play', type: 'episode.watched', at: t0 + 3, data: { show: 'Severance', episode: 'S1 E2 · Half Loop' } });
+  fam.add({ id: 'p5', app: 'play', type: 'chapter.read', at: t0 + 4, data: { comic: 'Saga' } });
+  fam.add({ id: 'f1', app: 'fit', type: 'workout.logged', at: t0 + 5, data: { kind: 'strength', name: 'Push day', minutes: 45, exercises: 5, sets: 15 } });
+  fam.add({ id: 'fit-health-today', app: 'fit', type: 'health.day', at: t0 + 6, data: { steps: 4000 } });
+
+  const r = await familySync(ctx);
+  assert.equal(r.error, undefined);
+  assert.equal(r.pulled, 7);
+  assert.equal(listItems(ctx, { type: 'movie' })[0].status, 'done');
+  assert.equal(listItems(ctx, { type: 'book' })[0].creator, 'Frank Herbert');
+  const season = listItems(ctx, { type: 'show' })[0];
+  assert.equal(season.meta.season, 1);
+  assert.equal(season.progress, 2);
+  assert.equal(season.progress_total, 2);
+  assert.equal(season.status, 'done');
+  assert.deepEqual(trophyCounts(ctx), { controller: 0, vhs: 1, tv: 1, anime: 0 });
+  assert.equal(listItems(ctx, { type: 'comic' })[0].progress, 1);
+  assert.equal(getTracker(ctx, workout.id).today.done, true);
+  const ev = ctx.db.prepare("SELECT source, title FROM events WHERE id = 'p1'").get();
+  assert.deepEqual({ ...ev }, { source: '128bitplay', title: '🎬 Watched Alien' });
+
+  // Things those events caused here (item.completed, trophies, habit.completed) aren't echoed back.
+  const echo = await familySync(ctx);
+  assert.equal(echo.pushed, 0);
+  assert.equal(fam.posted.length, 0);
+
+  // Replaced events (today's steps go up) update in place.
+  fam.feed.find((e) => e.id === 'fit-health-today').data = { steps: 9000 };
+  await familySync(ctx);
+  assert.match(ctx.db.prepare("SELECT payload FROM events WHERE id = 'fit-health-today'").get().payload, /9000/);
+  // TVmaze looked up once per show.
+  assert.equal(fam.calls.filter((c) => c.includes('tvmaze')).length, 1);
+});
+
+test('push: Tracker\'s own wins go to the feed as app "tracker"; per-tap logs stay local', async () => {
+  const fam = fakeFamily();
+  const ctx = ctxFor(fam);
+  const water = createTracker(ctx, { preset: 'water' });
+  logTracker(ctx, water.id, { value: 8 }); // before linking: not shared
+  await familySignIn(ctx, { email: 'me@x.com', password: 'hunter22' });
+  const meds = createTracker(ctx, { preset: 'meds' });
+  logTracker(ctx, meds.id, {});
+  const r = await familySync(ctx);
+  assert.equal(r.pushed, 1);
+  assert.equal(fam.posted[0].app, 'tracker');
+  assert.equal(fam.posted[0].type, 'habit.completed');
+  assert.equal(fam.posted[0].data.tracker, 'Meds');
+  assert.equal(typeof fam.posted[0].at, 'number');
+  // Our own events coming back in the feed are ignored.
+  const again = await familySync(ctx);
+  assert.equal(again.pulled, 0);
+  assert.equal(familyStatus(ctx).pushed_total, 1);
+});
+
+test('expired session refreshes; sign out forgets it', async () => {
+  const fam = fakeFamily();
+  const ctx = ctxFor(fam);
+  await familySignIn(ctx, { email: 'me@x.com', password: 'hunter22' });
+  const a = JSON.parse(ctx.db.prepare("SELECT value FROM kv WHERE key = 'family.account'").get().value);
+  ctx.db.prepare("UPDATE kv SET value = ? WHERE key = 'family.account'").run(JSON.stringify({ ...a, expires: 0 }));
+  await familySync(ctx);
+  assert.ok(fam.calls.some((c) => c.endsWith('grant_type=refresh_token')));
+  const out = await familySignOut(ctx);
+  assert.equal(out.signed_in, false);
+  assert.equal((await familySync(ctx)).error, 'not signed in');
+});

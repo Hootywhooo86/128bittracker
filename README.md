@@ -5,51 +5,148 @@ and see your whole life — workouts, money, music, all of it — on one
 timeline. 128bitlife plays the game; Tracker keeps the score.
 Part of the 128bit family.
 
-> Product direction is Daniel's call — this README is a starter brief so
-> Carlos (Claude Code) has something concrete to react to. The landing page
-> is live; the app itself is unstarted.
+> Product direction is Daniel's call. The landing page (`index.html`) is
+> live, and v0.1 of the app now lives in `src/` + `public/`.
 
-## Concept (starter — Daniel decides)
+## Android app (APK)
 
-A universal tracker with two jobs:
+The phone app lives in [`mobile/`](mobile/README.md). It is the same Tracker
+running fully offline on the device, and it syncs with a Tracker server so
+128bitplay and the other 128bit apps can reach it, and so your data is backed up.
 
-1. **Log anything.** Habits, water, sleep, moods, meds — two-tap logging,
-   custom trackers, reminders. Streaks with streak-freezes (consistency >
-   perfection), completion rates, trends.
-2. **The family timeline.** Subscribes to the shared 128bit event feed and
-   renders every event from every sibling app on one timeline:
-   `workout.logged` (fit), `budget.updated` (gold), `track.played` (music),
-   `matchup.won` (fantasy), `booking.made` (trip). Tracker doesn't issue
-   quests — that's 128bitlife's job. Tracker keeps the record.
+**Download:** grab the latest `.apk` from
+[Releases](https://github.com/Hootywhooo86/128bittracker/releases). Bumping
+`"version"` in `mobile/package.json` publishes a new release automatically.
 
-## Architecture — log fast, aggregate honestly
+## Run the server
+
+To put it online for 128bitplay and phone sync, see
+[docs/SERVER.md](docs/SERVER.md) (Docker, Railway, Fly.io, VPS or home).
+
+Needs Node 22.5+ and nothing else: no `npm install`, no database server.
+
+```bash
+npm start          # http://127.0.0.1:8128
+npm test
+```
+
+| Env var | Default | |
+|---|---|---|
+| `PORT` / `HOST` | `8128` / `127.0.0.1` | |
+| `TRACKER_DB` | `data/tracker.db` | one SQLite file, gitignored |
+| `TRACKER_PASSWORD` | unset | unset = UI works from this machine only. Set it to log in from your phone / network |
+| `TRACKER_SECRET` | random | signs login cookies; set it so logins survive restarts |
+| `TRACKER_CORS_ORIGINS` | none | comma-separated origins allowed to call the API from a browser |
+
+## What's in v0.4
+
+- **128bit family account**: sign in with the same account as 128bitPlay and
+  128bitfit. Books, movies, episodes and comics from Play and workouts from Fit
+  flow into the Library and habits, and Tracker shares streaks, trophies and
+  finished things back to the family feed.
+- **Golden trophies**: 100% a game → golden controller, finish a movie →
+  golden VHS, finish a show season → golden TV, finish an anime series →
+  golden idol. Trophy shelf on Stats.
+- **Game platforms**: Steam (official API), Xbox (OpenXBL), PlayStation
+  (unofficial, opt-in) and RetroAchievements bring in play time, achievements
+  and 100%s.
+- **Media accounts** (all free): AniList, MyAnimeList, Trakt, Hardcover,
+  Letterboxd, Goodreads and Last.fm keep your lists in step.
+- **Auto-tracking**: Plex, Jellyfin and Emby webhooks (or any JSON) log what
+  you finish. Anime is detected, so it earns the golden idol.
+- **Your library in the cloud, per account**: sign in with your 128bit account
+  (email, Google or Apple) and your library, lists and trophies are on every
+  device. Everyone gets their own; nothing is shared unless you make a list or
+  your profile public.
+- **Lists**: ordered lists of anything, shown as rows in 128bitPlay. Plus Up
+  Next, Watchlist and a Coming Up calendar, all readable by the other 128bit
+  apps (`docs/TRACKER-RPC.md`).
+- **128bit Connect**: one-tap Connect for AniList, Trakt and MyAnimeList. Your
+  changes go back to them. No API keys for anyone: 128bit lends its own for
+  TMDB, Steam, IGDB, Last.fm and RetroAchievements (`docs/SUPABASE-SETUP.md`).
+- **Title search**: covers, years, creators and lengths from Open Library,
+  AniList, TVmaze, iTunes, the Steam store, plus TMDB and IGDB with keys.
+- **Imports**: Goodreads, StoryGraph, Letterboxd, MyAnimeList.
+- **Coming up**: next episodes and game release dates on the Timeline.
+
+## Earlier (v0.1–v0.3)
+
+- **Today**: habit trackers (done / count / duration / 1–5 scale), presets,
+  two-tap logging, undo, a 30-day pixel strip, forgiving streaks with freezes
+  and "never miss twice" nudges.
+- **Library**: track anything you play, watch, read or listen to (games,
+  movies, shows, books, anime, manga, comics, podcasts, music, courses).
+  Status, progress, sessions and time spent, 1–10 ratings, reviews,
+  collections.
+- **Timeline**: one feed for every 128bit app's events.
+- **Stats**: completion rates, streaks, finished this year, time logged,
+  year in pixels.
+- **Connect**: scoped API keys, signed outbound webhooks, JSON export.
+- **128bitplay integration**: games, sessions, completions and achievements
+  sync into the Library on their own. See [`docs/API.md`](docs/API.md).
+
+## Architecture
 
 ```
 src/
-  trackers/
-    custom/      # User-defined trackers: name, type (count/duration/
-                 # check/binary, scale), target, reminder schedule.
-    presets/     # Water, sleep, reading, mood, meds — one-tap enable.
-  streaks/       # Streak engine: chains, freezes, recovery rules,
-                 # "never miss twice" nudges. No shame spirals.
-  timeline/
-    feed/        # Subscribes to the shared 128bit event schema.
-    views/       # Day / week / month / "year in pixels" aggregations.
-  stats/         # Completion rates, best streaks, correlations
-                 # ("you sleep better on workout days").
-  events.ts      # 128bit shared event schema — emit habit.completed,
-                 # streak.milestone, streak.frozen, etc.
-                 # 128bitlife subscribes for quests + XP.
+  server.js            # node:http server, static UI + /api/v1
+  db/                  # schema + migrations (shared), node:sqlite (server)
+  domain/
+    trackers.js        # habit CRUD, presets, logging, freezes
+    streaks.js         # streak engine (pure, unit-tested)
+    library.js         # items, sessions, collections
+    events.js          # 128bit envelope + timeline
+    stats.js           # overview + year in pixels
+    apikeys.js         # hashed, scoped API keys
+    webhooks.js        # webhook CRUD + signed delivery (server only)
+  integrations/
+    index.js           # POST /events: idempotent, atomic per event
+    play.js            # 128bitPlay game.* and media events → Library
+    family.js          # any event → trackers that `listen` for it
+    family-account.js  # 128bit family sign-in + family feed sync (Supabase)
+    connectors/        # Steam, Xbox, PlayStation, RetroAchievements, AniList, MAL,
+                       # Trakt, Hardcover, Letterboxd, Goodreads, Last.fm
+    scrobble.js        # Plex / Jellyfin / Emby / generic webhooks
+    metadata.js        # title search (Open Library, AniList, TVmaze, …)
+    imports.js         # Goodreads, StoryGraph, Letterboxd, MyAnimeList
+    calendar.js        # coming up: next episodes, game releases
+  domain/trophies.js   # golden trophy rules
+  api/                 # router, auth; core-routes.js is shared with the phone
+public/                # the pixel app UI (vanilla JS), shared by web + Android
+mobile/                # Android app (Capacitor + sql.js), see mobile/README.md
+docs/API.md            # API reference for 128bitplay & siblings
+test/                  # node:test
 ```
 
 Rules:
 - **Two taps to log.** If logging takes longer, the design failed.
-- **Tracker records; Life rewards.** No quests, no XP logic here — emit
-  events and let 128bitlife do the game layer.
-- **Streaks are forgiving by design.** Freezes, rest days, and recovery —
-  the engine should encourage, not punish.
+- **Tracker records; Life rewards.** No quests, no XP logic here. Emit
+  events and let 128bitlife (or 128bitplay) do the game layer.
+- **Streaks are forgiving by design.** Freezes, rest days, and recovery.
+  The engine should encourage, not punish.
 - **Local-first.** Tracker data is personal; sync is opt-in, never required.
 - Never store raw credentials in the repo.
+
+## Roadmap (proposed — Daniel decides)
+
+Done: reminders, backups, family account, trophies, Steam/Xbox/PlayStation,
+search, imports, calendar, media accounts, Plex/Jellyfin/Emby auto-tracking,
+cloud library per account, lists in 128bitPlay, Google/Apple sign-in,
+128bit Connect with two-way sync.
+
+Next up:
+1. **Friends**: follow people's public profiles, see their activity.
+2. **Year in review** card you can share.
+3. **Body & health trackers**: weight and measurements with charts (or pull
+   from 128bitfit), sleep from phone health APIs.
+4. **Native SQLite on the phone** (swap `mobile/src/adapter.js`) once
+   histories get large.
+5. **Play Store listing.**
+
+Later:
+- Correlations ("you sleep better on workout days"), a Pro candidate
+- Spotify via 128bitmusic
+- Pixel themes & badge packs (cosmetic IAP)
 
 ## Start-here brief for Claude
 

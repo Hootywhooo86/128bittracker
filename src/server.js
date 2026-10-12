@@ -41,7 +41,7 @@ export function createApp({ db = openDb(), fetchImpl, password, secret, corsOrig
       if (!route) throw new HttpError(pathMatched ? 405 : 404, pathMatched ? 'method not allowed' : 'no such endpoint');
       const principal = auth.identify(req);
       if (route.scope) requireScope(principal, route.scope);
-      const body = ['POST', 'PATCH', 'PUT'].includes(req.method) ? await readJson(req) : undefined;
+      const body = ['POST', 'PATCH', 'PUT'].includes(req.method) ? await readJson(req, { form: url.pathname.startsWith('/api/v1/scrobble/') }) : undefined;
       const out = await route.handler({
         params,
         query: Object.fromEntries(url.searchParams),
@@ -67,7 +67,7 @@ function send(res, status, payload) {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }).end(body);
 }
 
-async function readJson(req) {
+async function readJson(req, { form = false } = {}) {
   const chunks = [];
   let size = 0;
   for await (const c of req) {
@@ -76,12 +76,30 @@ async function readJson(req) {
     chunks.push(c);
   }
   if (!size) return undefined;
-  if (!(req.headers['content-type'] ?? '').includes('application/json')) throw new HttpError(415, 'send application/json');
+  const type = req.headers['content-type'] ?? '';
+  // Plex and Emby post webhooks as multipart forms with the JSON in one field.
+  if (form && type.includes('multipart/form-data')) return formJson(Buffer.concat(chunks), type);
+  if (!type.includes('application/json')) throw new HttpError(415, 'send application/json');
   try {
     return JSON.parse(Buffer.concat(chunks).toString('utf8'));
   } catch {
     throw new HttpError(400, 'invalid JSON');
   }
+}
+
+function formJson(buf, type) {
+  const boundary = type.match(/boundary="?([^";]+)"?/)?.[1];
+  if (!boundary) throw new HttpError(400, 'multipart body without a boundary');
+  for (const part of buf.toString('utf8').split(`--${boundary}`)) {
+    const [head, ...rest] = part.split('\r\n\r\n');
+    if (!/name="(payload|data)"/.test(head)) continue;
+    try {
+      return JSON.parse(rest.join('\r\n\r\n').replace(/\r\n$/, ''));
+    } catch {
+      throw new HttpError(400, 'invalid JSON in the form');
+    }
+  }
+  throw new HttpError(400, 'no payload field in the form');
 }
 
 async function serveStatic(pathname, res) {

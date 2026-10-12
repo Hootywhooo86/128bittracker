@@ -172,6 +172,44 @@ The Android app uses these endpoints. Other apps don't need them.
 | DELETE | `/connectors/:name` | forget the credentials (games stay) |
 | GET / PUT | `/services`, `/services/:name` | TMDB (`token`) and IGDB (`client_id`, `client_secret`) keys |
 
+Connectors come in two groups (`group` in `GET /connectors`):
+
+| Group | Connector | Needs | Brings in |
+|---|---|---|---|
+| games | `steam` | Web API key + public profile | games, play time, achievements |
+| games | `xbox` | OpenXBL key | games, achievements |
+| games | `psn` | NPSSO (unofficial, opt-in) | games, trophies, play time |
+| games | `retroachievements` | username + Web API key | retro games; mastered → golden controller |
+| media | `anilist` | username (public list) | anime + manga: status, progress, score |
+| media | `mal` | MAL Client ID + username | anime + manga |
+| media | `trakt` | Trakt Client ID + username (public profile) | movies, shows per season (anime genre → anime), ratings, watchlist |
+| media | `hardcover` | API token | books: shelves, ratings, progress |
+| media | `letterboxd` | username | latest ~50 diary entries (RSS) |
+| media | `goodreads` | profile URL or id | Read / Currently Reading / Want to Read (RSS) |
+| media | `lastfm` | API key + username | top 200 albums with play counts |
+
+Sync results: `{ items, games, added, updated, minutes, perfect, new_trophies }`.
+Re-syncing updates items in place (keyed by the service's id).
+
+## Auto-tracking from media servers
+
+`POST /scrobble/:service?key=tb128_…` with a key that has `ingest`. The key goes
+in the URL because media servers can't set headers, so use a key that can only
+send events.
+
+| `:service` | Set up | Counts |
+|---|---|---|
+| `plex` | Settings → Webhooks (Plex Pass). Multipart is fine | `media.scrobble` |
+| `jellyfin` | Webhook plugin → Generic destination | `PlaybackStop` with `PlayedToCompletion`, or marked played |
+| `emby` | Settings → Webhooks | `playback.stop` when finished, `item.markplayed` |
+| `generic` | any JSON (Kodi add-ons, Tautulli, Home Assistant, Tasker) | `{ "type": "movie", "title" }` or `{ "type": "episode", "show", "season", "episode" }` |
+
+Each becomes a `movie.watched` or `episode.watched` event (`source` = the service).
+The same thing on the same day counts once. Episodes are looked up on TVmaze for
+the season's episode count and whether the show is anime, so finishing a season
+earns the golden TV, or the golden idol for anime. Other payloads return
+`{ "status": "ignored" }`.
+
 ## 128bit family account (scope `write`)
 
 | Method | Path | |
@@ -184,4 +222,5 @@ The Android app uses these endpoints. Other apps don't need them.
 Tracker shares `habit.completed`, `streak.milestone`, `streak.frozen`, `trophy.earned`,
 `item.completed`, `item.started` and `item.rated` to the feed as `app: "tracker"`. From
 128bitPlay it understands `book.finished`, `movie.watched`, `episode.watched` and
-`chapter.read`. Everything else shows on the timeline.
+`chapter.read` (from any source, not only Play). Anime episodes become anime items
+and earn the golden idol. Everything else shows on the timeline.

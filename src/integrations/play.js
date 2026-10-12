@@ -14,11 +14,14 @@
 //
 // game = { id, title, cover_url?, platform?, developer?, year? }
 //
-// Media events 128bitPlay posts to the family feed (docs/EVENTS.md):
+// Media events 128bitPlay posts to the family feed (docs/EVENTS.md). These are
+// also accepted from any other source (Plex, Jellyfin, Emby, scripts):
 //   book.finished   { title, author? }          → book (done)
 //   movie.watched   { title }                   → movie (done → golden VHS)
 //   episode.watched { show, episode: "S2 E3 · Name" } → that season's item; the
-//                   last episode of the season finishes it (→ golden TV)
+//                   last episode of the season finishes it (→ golden TV). With
+//                   data.anime (set by enrich.js) the season is an anime item
+//                   instead (→ golden idol).
 //   chapter.read    { comic }                   → comic (+1 issue)
 import { HttpError } from '../api/errors.js';
 import { createItem, findByExternal, updateItem, addSession, getItem } from '../domain/library.js';
@@ -31,7 +34,11 @@ function upsertMedia(ctx, externalId, fields) {
   return existing ?? createItem(ctx, fields, { source: SOURCE, externalId });
 }
 
+// Every media item from events lives under this source, whoever sent the
+// event, so a movie watched on Plex and in 128bitPlay is one item.
 const SOURCE = '128bitplay';
+
+export const MEDIA_EVENTS = new Set(['book.finished', 'movie.watched', 'episode.watched', 'chapter.read']);
 
 function upsertGame(ctx, game, status) {
   if (!game || game.id == null || !game.title) throw new HttpError(400, 'data.game needs id and title');
@@ -97,8 +104,9 @@ export function applyPlayEvent(ctx, ev) {
       if (!d.show) return [];
       const season = Number(d.season ?? String(d.episode ?? '').match(/S(\d+)/i)?.[1]) || null;
       const number = Number(d.number ?? String(d.episode ?? '').match(/E(\d+)/i)?.[1]) || null;
-      const item = upsertMedia(ctx, `show:${key(d.show)}${season ? `:s${season}` : ''}`, {
-        type: 'show', title: d.show, status: 'active', meta: season ? { season } : {},
+      const type = d.anime ? 'anime' : 'show';
+      const item = upsertMedia(ctx, `${type}:${key(d.show)}${season ? `:s${season}` : ''}`, {
+        type, title: d.show, status: 'active', meta: season ? { season } : {},
       });
       const total = Number(d.season_episodes) || item.progress_total || null;
       const progress = Math.max(item.progress ?? 0, number ?? (item.progress ?? 0) + 1);

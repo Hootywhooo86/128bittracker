@@ -96,7 +96,18 @@ streaks, trophies and finished items. You don't need a Tracker server for this.
 
 **Sync → Game platforms**: Steam (Web API key + public profile), Xbox
 (OpenXBL key) and PlayStation (NPSSO, unofficial, opt-in). They sync every
-12 hours, or tap Sync now.
+12 hours, or tap Sync now. RetroAchievements (username + free Web API key)
+covers retro games: mastering one earns the golden controller.
+
+## Media accounts
+
+**Sync → Media accounts**: AniList and Letterboxd (just a username), Goodreads
+(profile link), Hardcover (API token), MyAnimeList and Trakt (free Client ID +
+username) and Last.fm (free API key). Your lists come in with status, progress
+and ratings, and re-sync every 12 hours. Finished anime earns the golden idol.
+
+Plex / Jellyfin / Emby auto-tracking needs the Tracker server, because a phone
+can't receive webhooks (see `docs/API.md`, *Auto-tracking*).
 
 ## Connecting to a Tracker server (optional)
 

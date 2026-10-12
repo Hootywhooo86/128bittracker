@@ -543,6 +543,13 @@ async function renderConnect() {
     <h2 class="sec">GAME PLATFORMS</h2>
     <div id="platforms"></div>
 
+    <h2 class="sec">MEDIA ACCOUNTS</h2>
+    <p class="muted" style="font-size:13px;line-height:1.6;margin-bottom:10px">Bring your lists from the services you already use. Free, and they re-sync every 12 hours.</p>
+    <div id="media-accounts"></div>
+
+    <h2 class="sec">AUTO-TRACK: PLEX, JELLYFIN, EMBY</h2>
+    ${scrobbleHelp(origin)}
+
     <h2 class="sec">MOVIE, TV &amp; GAME DATA</h2>
     <div id="services"></div>
 
@@ -597,7 +604,8 @@ async function renderConnect() {
     <div class="row"><a class="btn ghost" href="#" id="export">⬇ EXPORT JSON</a>${importButton()}</div>`;
   bindImport(renderConnect);
   await renderFamily($('#family'));
-  await renderPlatforms($('#platforms'));
+  await renderPlatforms($('#platforms'), 'games');
+  await renderPlatforms($('#media-accounts'), 'media');
   await renderServices($('#services'));
 
   $('#key-form').addEventListener('submit', guard(async (e) => {
@@ -721,13 +729,19 @@ async function renderFamily(el) {
   }));
 }
 
-// ---------- game platforms ----------
+// ---------- game platforms + media accounts ----------
 const PLATFORM_ICON = { steam: '🎮', xbox: '🟢', psn: '🔷' };
 
-async function renderPlatforms(el) {
-  const list = await api('GET', '/connectors');
-  el.innerHTML = list.map((c) => `<details class="platform" ${c.configured ? '' : ''}>
-    <summary><span class="platform-name">${PLATFORM_ICON[c.name] ?? '🎮'} ${esc(c.label)}</span>
+function syncSummary(r, group) {
+  return group === 'media'
+    ? `${r.items} on your lists · ${r.added} new`
+    : `${r.games} games · ${r.perfect} at 100%${r.minutes ? ` · +${fmtMin(r.minutes)}` : ''}`;
+}
+
+async function renderPlatforms(el, group = 'games') {
+  const list = (await api('GET', '/connectors')).filter((c) => (c.group ?? 'games') === group);
+  el.innerHTML = list.map((c) => `<details class="platform">
+    <summary><span class="platform-name">${c.icon ?? PLATFORM_ICON[c.name] ?? '🎮'} ${esc(c.label)}</span>
       ${c.official ? '' : '<span class="pill">UNOFFICIAL</span>'}
       <span class="muted platform-state">${c.last_error ? '⚠ error' : c.last_sync_at ? `synced ${new Date(c.last_sync_at).toLocaleDateString()}` : c.configured ? 'ready' : 'not connected'}</span></summary>
     <form data-conn="${c.name}">
@@ -737,7 +751,7 @@ async function renderPlatforms(el) {
         <input class="input" id="cf-${c.name}-${f.key}" name="${f.key}" ${f.secret ? 'type="password" autocomplete="off"' : ''}
           value="${f.secret ? '' : esc(f.value ?? '')}" placeholder="${f.secret && f.set ? 'saved — paste to replace' : ''}"></div>`).join('')}
       ${c.warning ? `<label class="row" style="font-size:13px;margin-bottom:12px;gap:8px"><input type="checkbox" name="accept_risk" ${c.fields && c.configured ? '' : ''}> I understand the risk</label>` : ''}
-      ${c.last_result ? `<p class="muted" style="font-size:12px;margin-bottom:10px">Last sync: ${c.last_result.games} games · ${c.last_result.perfect} at 100% · +${fmtMin(c.last_result.minutes)}</p>` : ''}
+      ${c.last_result ? `<p class="muted" style="font-size:12px;margin-bottom:10px">Last sync: ${syncSummary({ items: c.last_result.games, ...c.last_result }, group)}</p>` : ''}
       ${c.last_error ? `<p class="nudge">Last error: ${esc(c.last_error)}</p>` : ''}
       <div class="row"><button class="btn teal small">SAVE</button>
         <button type="button" class="btn small" data-conn-sync ${c.configured ? '' : 'disabled'}>⟳ SYNC NOW</button>
@@ -752,7 +766,7 @@ async function renderPlatforms(el) {
       if (form.querySelector('[name=accept_risk]')) body.accept_risk = form.querySelector('[name=accept_risk]').checked;
       await api('PUT', `/connectors/${name}`, body);
       toast('SAVED');
-      await renderPlatforms(el);
+      await renderPlatforms(el, group);
       el.querySelector(`form[data-conn="${name}"]`)?.closest('details')?.setAttribute('open', '');
     }));
     form.querySelector('[data-conn-sync]').addEventListener('click', guard(async (e) => {
@@ -760,18 +774,33 @@ async function renderPlatforms(el) {
       e.target.textContent = 'SYNCING…';
       try {
         const r = await api('POST', `/connectors/${name}/sync`, {});
-        toast(`${r.games} GAMES · ${r.added} NEW · ${r.perfect} AT 100%`);
+        toast(syncSummary(r, group).toUpperCase());
         if (r.new_trophies?.length) celebrate(r.new_trophies.length === 1 ? r.new_trophies[0] : { ...r.new_trophies[0], title: `${r.new_trophies[0].title} + ${r.new_trophies.length - 1} more` });
       } finally {
-        await renderPlatforms(el);
+        await renderPlatforms(el, group);
       }
     }));
     form.querySelector('[data-conn-remove]')?.addEventListener('click', guard(async () => {
-      if (!confirm('Disconnect? Synced games stay in your library.')) return;
+      if (!confirm('Disconnect? Everything it synced stays in your library.')) return;
       await api('DELETE', `/connectors/${name}`);
-      await renderPlatforms(el);
+      await renderPlatforms(el, group);
     }));
   });
+}
+
+function scrobbleHelp(origin) {
+  const url = (s) => `${origin}/api/v1/scrobble/${s}?key=YOUR_KEY`;
+  return `<p class="muted" style="font-size:13px;line-height:1.7;margin-bottom:10px">Finish a movie or episode on your media server and it lands here on its own: golden VHS tapes and TVs included, anime detected. Create a key under API keys below with <b>send events only</b>, put it in place of YOUR_KEY, and paste the link into your server. Your server has to be able to reach this Tracker.</p>
+    <details class="platform"><summary><span class="platform-name">🟧 Plex</span><span class="muted platform-state">needs Plex Pass</span></summary>
+      <p class="muted" style="font-size:13px;line-height:1.6;margin-bottom:8px">Plex Web → Settings → Webhooks → Add Webhook:</p><div class="code">${esc(url('plex'))}</div></details>
+    <details class="platform"><summary><span class="platform-name">🟪 Jellyfin</span><span class="muted platform-state">free</span></summary>
+      <p class="muted" style="font-size:13px;line-height:1.6;margin-bottom:8px">Dashboard → Plugins → Catalog → install <b>Webhook</b>, restart. Then Webhook → Add Generic Destination, tick <b>Playback Stop</b> and <b>User Data Saved</b>, and use:</p><div class="code">${esc(url('jellyfin'))}</div></details>
+    <details class="platform"><summary><span class="platform-name">🟩 Emby</span><span class="muted platform-state">Emby Premiere</span></summary>
+      <p class="muted" style="font-size:13px;line-height:1.6;margin-bottom:8px">Settings → Webhooks → Add Webhook, events <b>Playback Stop</b> and <b>Mark Played</b>:</p><div class="code">${esc(url('emby'))}</div></details>
+    <details class="platform"><summary><span class="platform-name">📦 Kodi, Tautulli, scripts</span><span class="muted platform-state">any JSON</span></summary>
+      <p class="muted" style="font-size:13px;line-height:1.6;margin-bottom:8px">POST JSON from a Kodi add-on, Tautulli, Home Assistant or Tasker:</p><div class="code">curl -X POST "${esc(url('generic'))}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"type":"episode","show":"Frieren","season":1,"episode":28}'</div></details>`;
 }
 
 // ---------- import ----------
@@ -802,6 +831,9 @@ async function renderSync() {
     <div id="family"></div>
     <h2 class="sec">GAME PLATFORMS</h2>
     <div id="platforms"></div>
+    <h2 class="sec">MEDIA ACCOUNTS</h2>
+    <p class="muted" style="font-size:13px;line-height:1.6;margin-bottom:10px">Bring your lists from the services you already use. Free, and they re-sync every 12 hours.</p>
+    <div id="media-accounts"></div>
     <h2 class="sec">MOVIE, TV &amp; GAME DATA</h2>
     <div id="services"></div>
     <h2 class="sec">TRACKER SERVER (OPTIONAL)</h2>
@@ -832,7 +864,8 @@ async function renderSync() {
     <div class="row"><button class="btn ghost" id="export">⬇ EXPORT JSON</button>${importButton()}</div>`;
   bindImport(renderSync);
   await renderFamily($('#family'));
-  await renderPlatforms($('#platforms'));
+  await renderPlatforms($('#platforms'), 'games');
+  await renderPlatforms($('#media-accounts'), 'media');
   await renderServices($('#services'));
   $('#up-check').addEventListener('click', guard(async () => {
     $('#up-check').disabled = true;

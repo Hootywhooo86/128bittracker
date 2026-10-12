@@ -47,8 +47,13 @@ npm test
 - **Golden trophies**: 100% a game → golden controller, finish a movie →
   golden VHS, finish a show season → golden TV, finish an anime series →
   golden idol. Trophy shelf on Stats.
-- **Game platforms**: Steam (official API), Xbox (OpenXBL) and PlayStation
-  (unofficial, opt-in) bring in play time, achievements and 100%s.
+- **Game platforms**: Steam (official API), Xbox (OpenXBL), PlayStation
+  (unofficial, opt-in) and RetroAchievements bring in play time, achievements
+  and 100%s.
+- **Media accounts** (all free): AniList, MyAnimeList, Trakt, Hardcover,
+  Letterboxd, Goodreads and Last.fm keep your lists in step.
+- **Auto-tracking**: Plex, Jellyfin and Emby webhooks (or any JSON) log what
+  you finish. Anime is detected, so it earns the golden idol.
 - **Title search**: covers, years, creators and lengths from Open Library,
   AniList, TVmaze, iTunes, the Steam store, plus TMDB and IGDB with keys.
 - **Imports**: Goodreads, StoryGraph, Letterboxd, MyAnimeList.
@@ -89,7 +94,9 @@ src/
     play.js            # 128bitPlay game.* and media events → Library
     family.js          # any event → trackers that `listen` for it
     family-account.js  # 128bit family sign-in + family feed sync (Supabase)
-    connectors/        # Steam, Xbox (OpenXBL), PlayStation
+    connectors/        # Steam, Xbox, PlayStation, RetroAchievements, AniList, MAL,
+                       # Trakt, Hardcover, Letterboxd, Goodreads, Last.fm
+    scrobble.js        # Plex / Jellyfin / Emby / generic webhooks
     metadata.js        # title search (Open Library, AniList, TVmaze, …)
     imports.js         # Goodreads, StoryGraph, Letterboxd, MyAnimeList
     calendar.js        # coming up: next episodes, game releases
@@ -113,11 +120,11 @@ Rules:
 ## Roadmap (proposed — Daniel decides)
 
 Done: reminders, backups, family account, trophies, Steam/Xbox/PlayStation,
-search, imports, calendar.
+search, imports, calendar, media accounts, Plex/Jellyfin/Emby auto-tracking.
 
 Next up:
 1. **Google / Apple sign-in** for the family account in the Android app.
-2. **Trakt / Hardcover** read directly (as the family timeline already does).
+2. **Two-way sync**: write progress back to AniList / Trakt (needs their OAuth sign-in).
 3. **Body & health trackers**: weight and measurements with charts (or pull
    from 128bitfit), sleep from phone health APIs.
 4. **Native SQLite on the phone** (swap `mobile/src/adapter.js`) once

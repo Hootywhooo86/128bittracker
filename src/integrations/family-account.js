@@ -9,6 +9,7 @@
 // Works the same on the server and the phone; only `ctx.fetch` differs.
 import { HttpError } from '../api/errors.js';
 import { ingest } from './index.js';
+import { enrichEpisode } from './enrich.js';
 import { tx } from '../db/tx.js';
 
 // The family project. Its publishable key is meant to be public; the tables
@@ -178,28 +179,6 @@ function titleFor(type, d) {
 function toFamily(row) {
   const data = JSON.parse(row.payload);
   return { id: row.id, app: 'tracker', type: row.type, at: Date.parse(row.occurred_at), data: { ...data, title: row.title ?? undefined } };
-}
-
-/** TVmaze episode counts so a watched season can complete (and earn its golden TV). */
-async function enrichEpisode(ctx, ev) {
-  if (ev.type !== 'episode.watched' || !ev.data.show) return;
-  const m = String(ev.data.episode ?? '').match(/S(\d+)\s*E(\d+)/i);
-  if (!m) return;
-  ev.data = { ...ev.data, season: Number(m[1]), number: Number(m[2]) };
-  const cache = get(ctx, 'family.seasons') ?? {};
-  const key = ev.data.show.toLowerCase();
-  if (!(key in cache)) {
-    try {
-      const res = await (ctx.fetch ?? globalThis.fetch)(`https://api.tvmaze.com/singlesearch/shows?${new URLSearchParams({ q: ev.data.show, embed: 'seasons' })}`);
-      const show = res.ok ? await res.json() : null;
-      cache[key] = show ? Object.fromEntries((show._embedded?.seasons ?? []).map((s) => [s.number, s.episodeOrder ?? null])) : null;
-    } catch {
-      return; // offline: try again next sync
-    }
-    put(ctx, 'family.seasons', cache);
-  }
-  const total = cache[key]?.[ev.data.season];
-  if (total) ev.data.season_episodes = total;
 }
 
 async function pull(ctx) {

@@ -7,6 +7,8 @@ import * as hooks from '../domain/webhooks.js';
 import { normalizeEnvelope } from '../domain/events.js';
 import { EXPORT_FORMAT } from '../domain/backup.js';
 import { ingest, ingestBatch } from '../integrations/index.js';
+import { scrobbleEvent } from '../integrations/scrobble.js';
+import { enrichEpisode } from '../integrations/enrich.js';
 
 export { API_VERSION } from './core-routes.js';
 
@@ -51,6 +53,19 @@ export function buildRoutes(ctx, auth) {
     }
     const res = ingest(ctx, body, { defaultSource });
     return [res.status === 'accepted' ? 201 : res.status === 'rejected' ? 400 : 200, res];
+  });
+
+  // Media servers (Plex, Jellyfin, Emby) can't send headers, so the key rides
+  // in the URL: give them a key that can only send events.
+  r.post('/api/v1/scrobble/:service', null, async ({ params, query, body, principal }) => {
+    const scopes = principal?.scopes ?? (query.key ? keys.authenticateKey(db, String(query.key))?.scopes : null);
+    if (!scopes) throw new HttpError(401, 'add ?key= with an API key that can send events');
+    if (!scopes.includes('ingest')) throw new HttpError(403, 'that key needs the "send events" (ingest) permission');
+    const ev = scrobbleEvent(params.service, body);
+    if (!ev) return { status: 'ignored' };
+    await enrichEpisode(ctx, ev);
+    const res = ingest(ctx, ev);
+    return [res.status === 'accepted' ? 201 : 200, res];
   });
 
   // --- device sync (the Android app) ---------------------------------------------

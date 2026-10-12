@@ -1,13 +1,24 @@
-// Connectors: pull play time + completion from game platforms into the
-// Library. Shared by the server and the phone (they only differ in which
-// `fetch` they use). Config lives in the kv table as `conn.<name>`.
+// Connectors: pull your history from other services into the Library.
+//   group "games": play time + achievements (Steam, Xbox, PlayStation, RetroAchievements)
+//   group "media": lists and watch/read history (AniList, MyAnimeList, Trakt,
+//                  Hardcover, Letterboxd, Goodreads, Last.fm)
+// Shared by the server and the phone (they only differ in which `fetch`
+// they use). Config lives in the kv table as `conn.<name>`.
 import { HttpError } from '../../api/errors.js';
 import { createItem, findByExternal, updateItem, addSession, getItem } from '../../domain/library.js';
 import { steam } from './steam.js';
 import { xbox } from './xbox.js';
 import { psn } from './psn.js';
+import { retroachievements } from './retroachievements.js';
+import { anilist } from './anilist.js';
+import { mal } from './mal.js';
+import { trakt } from './trakt.js';
+import { hardcover } from './hardcover.js';
+import { letterboxd } from './letterboxd.js';
+import { goodreads } from './goodreads.js';
+import { lastfm } from './lastfm.js';
 
-export const CONNECTORS = { steam, xbox, psn };
+export const CONNECTORS = { steam, xbox, psn, retroachievements, anilist, mal, trakt, hardcover, letterboxd, goodreads, lastfm };
 
 const key = (name) => `conn.${name}`;
 
@@ -34,6 +45,8 @@ function present(name, c, state) {
   return {
     name,
     label: c.label,
+    group: c.group ?? 'games',
+    icon: c.icon ?? null,
     official: c.official,
     warning: c.warning ?? null,
     help: c.help,
@@ -81,13 +94,14 @@ export async function syncConnector(ctx, name) {
   if (c.warning && !config.accept_risk) throw new HttpError(400, `${c.label}: accept the risk notice first`);
 
   const fetchImpl = ctx.fetch ?? globalThis.fetch;
-  const summary = { games: 0, added: 0, updated: 0, minutes: 0, perfect: 0, new_trophies: [] };
+  const summary = { items: 0, games: 0, added: 0, updated: 0, minutes: 0, perfect: 0, new_trophies: [] };
   const helpers = {
     fetch: fetchImpl,
     /** Persist tokens/derived ids between runs (e.g. a refreshed access token). */
     remember: (patch) => save(ctx, name, { ...(load(ctx, name) ?? {}), ...patch }),
     state,
     upsert: (game) => upsertGame(ctx, name, game, summary),
+    upsertMedia: (entry) => upsertMedia(ctx, name, entry, summary),
   };
   try {
     await c.sync(config, helpers);
@@ -109,6 +123,7 @@ export async function syncConnector(ctx, name) {
  */
 function upsertGame(ctx, source, game, summary) {
   summary.games++;
+  summary.items++;
   const existing = findByExternal(ctx, source, game.id);
   const minutes = game.playtime_minutes == null ? null : Math.max(0, Math.round(game.playtime_minutes));
   const meta = { platform: game.platform ?? source };
@@ -125,7 +140,7 @@ function upsertGame(ctx, source, game, summary) {
         type: 'game',
         title: game.title,
         cover_url: game.cover_url ?? null,
-        status: minutes ? 'active' : 'planned',
+        status: game.status ?? (minutes ? 'active' : 'planned'),
         meta,
       },
       { source, externalId: String(game.id), quiet: true },
@@ -141,10 +156,53 @@ function upsertGame(ctx, source, game, summary) {
     }
     const patch = { meta };
     if (!existing.cover_url && game.cover_url) patch.cover_url = game.cover_url;
+    if (game.status && game.status !== existing.status) patch.status = game.status;
     item = updateItem(ctx, existing.id, patch);
     summary.updated++;
   }
   if (item.new_trophy) summary.new_trophies.push(item.new_trophy);
   if (meta.perfect || (meta.achievements && meta.achievements.total > 0 && meta.achievements.unlocked >= meta.achievements.total)) summary.perfect++;
   return getItem(ctx, item.id);
+}
+
+/**
+ * Create or update one list entry from a media service. The service is the
+ * source of truth for what it reports; fields it leaves out are untouched.
+ * entry = { id, type, title, creator?, year?, cover_url?, status?, progress?,
+ *           progress_total?, rating? (1–10), finished_at? (ISO), meta? }
+ */
+function upsertMedia(ctx, source, entry, summary) {
+  if (!entry?.id || !entry.title || !entry.type) return null;
+  summary.items++;
+  const existing = findByExternal(ctx, source, String(entry.id));
+  const fields = {};
+  for (const k of ['creator', 'year', 'cover_url', 'status', 'progress', 'progress_total', 'rating']) {
+    if (entry[k] != null && entry[k] !== '') fields[k] = entry[k];
+  }
+  if (fields.rating != null) fields.rating = Math.min(10, Math.max(1, Math.round(fields.rating)));
+  if (fields.progress != null) fields.progress = Math.max(0, Math.round(fields.progress));
+  if (fields.progress_total != null) fields.progress_total = Math.round(fields.progress_total) || null;
+  if (fields.year != null) fields.year = Number(fields.year) > 0 ? Number(fields.year) : null;
+  let item;
+  if (!existing) {
+    item = createItem(ctx, { type: entry.type, title: String(entry.title).slice(0, 200), status: 'planned', ...fields, meta: entry.meta ?? {} },
+      { source, externalId: String(entry.id), quiet: true });
+    summary.added++;
+  } else {
+    const patch = {};
+    for (const [k, v] of Object.entries(fields)) {
+      if (k === 'cover_url' && existing.cover_url) continue;
+      if (existing[k] !== v) patch[k] = v;
+    }
+    if (entry.meta && Object.entries(entry.meta).some(([k, v]) => JSON.stringify(existing.meta?.[k] ?? null) !== JSON.stringify(v ?? null))) {
+      patch.meta = entry.meta;
+    }
+    item = Object.keys(patch).length ? updateItem(ctx, existing.id, patch) : existing;
+    summary.updated++;
+  }
+  if (entry.finished_at && item.status === 'done' && !existing?.finished_at) {
+    ctx.db.prepare('UPDATE items SET finished_at = ? WHERE id = ?').run(entry.finished_at, item.id);
+  }
+  if (item.new_trophy) summary.new_trophies.push(item.new_trophy);
+  return item;
 }

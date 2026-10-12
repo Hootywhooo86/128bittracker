@@ -1,7 +1,9 @@
 export class HttpError extends Error {
-  constructor(status, message) {
+  /** extra: more fields for the error body, e.g. { code: 'other_account' }. */
+  constructor(status, message, extra) {
     super(message);
     this.status = status;
+    this.extra = extra;
   }
 }
 

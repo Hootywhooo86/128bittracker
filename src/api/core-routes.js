@@ -63,6 +63,12 @@ export function addCoreRoutes(r, ctx) {
 
   r.get('/api/v1/collections', 'read', () => library.listCollections(ctx));
   r.post('/api/v1/collections', 'write', ({ body }) => [201, library.createCollection(ctx, body ?? {})]);
+  r.get('/api/v1/collections/:id', 'read', ({ params }) => ({
+    ...library.getCollection(ctx, id(params)),
+    items: library.listItems(ctx, { collection: id(params), sort: 'position', limit: 500 }),
+  }));
+  r.patch('/api/v1/collections/:id', 'write', ({ params, body }) => library.updateCollection(ctx, id(params), body ?? {}));
+  r.post('/api/v1/collections/:id/order', 'write', ({ params, body }) => library.reorderCollection(ctx, id(params), body?.item_ids));
   r.delete('/api/v1/collections/:id', 'write', ({ params }) => (library.deleteCollection(ctx, id(params)), [204]));
   r.put('/api/v1/collections/:id/items/:itemId', 'write', ({ params }) => {
     library.setCollectionMembership(ctx, id(params), id({ id: params.itemId }), true);
@@ -97,6 +103,10 @@ export function addCoreRoutes(r, ctx) {
   r.post('/api/v1/family/signup', 'write', ({ body }) => family.familySignUp(ctx, body ?? {}));
   r.post('/api/v1/family/signout', 'write', () => family.familySignOut(ctx));
   r.post('/api/v1/family/sync', 'write', () => family.familySync(ctx));
+  r.post('/api/v1/family/oauth/start', 'write', ({ body }) => family.familyOAuthStart(ctx, body ?? {}));
+  r.post('/api/v1/family/oauth/finish', 'write', ({ body }) => family.familyOAuthFinish(ctx, body ?? {}));
+  r.post('/api/v1/family/profile', 'write', ({ body }) => family.familyProfile(ctx, body ?? {}));
+  r.get('/api/v1/upnext', 'read', () => library.upNext(ctx));
   r.get('/api/v1/calendar', 'read', ({ query }) => upcoming(ctx, { refresh: query.refresh === '1' }));
   r.get('/api/v1/trophies', 'read', () => ({ trophies: trophies.listTrophies(ctx), counts: trophies.trophyCounts(ctx), kinds: trophies.TROPHIES }));
   r.get('/api/v1/export', 'read', () => exportAll(db));

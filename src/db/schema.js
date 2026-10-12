@@ -144,6 +144,29 @@ export const MIGRATIONS = [
     earned_at  TEXT NOT NULL
   );
   `,
+  // 5 — cloud library: stable ids shared across devices and apps, ordered lists
+  // that can show up in 128bitPlay, and tombstones so deletes sync too.
+  `
+  ALTER TABLE items ADD COLUMN uid TEXT;
+  CREATE UNIQUE INDEX items_uid ON items(uid) WHERE uid IS NOT NULL;
+  ALTER TABLE collections ADD COLUMN uid TEXT;
+  ALTER TABLE collections ADD COLUMN kind TEXT NOT NULL DEFAULT 'mixed';
+  ALTER TABLE collections ADD COLUMN show_in_play INTEGER NOT NULL DEFAULT 1;
+  ALTER TABLE collections ADD COLUMN is_public INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE collections ADD COLUMN share_id TEXT;
+  ALTER TABLE collections ADD COLUMN position INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE collections ADD COLUMN updated_at TEXT;
+  CREATE UNIQUE INDEX collections_uid ON collections(uid) WHERE uid IS NOT NULL;
+  ALTER TABLE collection_items ADD COLUMN position INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE collection_items ADD COLUMN updated_at TEXT;
+  ALTER TABLE trophies ADD COLUMN uid TEXT;
+  CREATE TABLE tombstones (
+    kind TEXT NOT NULL,
+    uid  TEXT NOT NULL,
+    at   TEXT NOT NULL,
+    PRIMARY KEY (kind, uid)
+  );
+  `,
 ];
 
 export function migrate(db) {

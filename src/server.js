@@ -52,7 +52,7 @@ export function createApp({ db = openDb(), fetchImpl, password, secret, corsOrig
       const [status, payload] = Array.isArray(out) && typeof out[0] === 'number' ? out : [200, out];
       send(res, status, payload);
     } catch (err) {
-      if (err instanceof HttpError) return send(res, err.status, { error: err.message });
+      if (err instanceof HttpError) return send(res, err.status, { ...err.extra, error: err.message });
       console.error(err);
       send(res, 500, { error: 'internal error' });
     }

@@ -84,7 +84,7 @@ export async function request(method, path, body) {
     }
     return { status, data: data ?? null };
   } catch (err) {
-    if (err instanceof HttpError) return { status: err.status, data: { error: err.message } };
+    if (err instanceof HttpError) return { status: err.status, data: { ...err.extra, error: err.message } };
     console.error(err);
     return { status: 500, data: { error: err.message || 'something went wrong' } };
   }

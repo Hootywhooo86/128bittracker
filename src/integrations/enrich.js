@@ -44,9 +44,8 @@ async function lookup(fetch, show) {
   try {
     const res = await fetch(`https://api.tvmaze.com/singlesearch/shows?${new URLSearchParams({ q: show, embed: 'seasons' })}`);
     if (res.ok) {
-      const s = await res.json();
-      const anime = (s.genres ?? []).includes('Anime') || (s.type === 'Animation' && s.language === 'Japanese');
-      return { anime, seasons: Object.fromEntries((s._embedded?.seasons ?? []).map((x) => [x.number, x.episodeOrder ?? null])) };
+      const { anime, seasons } = showInfo(await res.json());
+      return { anime, seasons };
     }
     if (res.status !== 404) return undefined;
     // TVmaze doesn't know it: AniList might (lots of anime only live there).
@@ -70,5 +69,35 @@ async function isAnime(fetch, show) {
     return [t.title?.english, t.title?.romaji, ...(t.synonyms ?? [])].some((x) => x && norm(x) === norm(show));
   } catch {
     return false;
+  }
+}
+
+function showInfo(s) {
+  return {
+    tvmaze_id: s.id ?? null,
+    imdb: s.externals?.imdb ?? null,
+    anime: (s.genres ?? []).includes('Anime') || (s.type === 'Animation' && s.language === 'Japanese'),
+    seasons: Object.fromEntries((s._embedded?.seasons ?? []).map((x) => [x.number, x.episodeOrder ?? null])),
+  };
+}
+
+/** A show by its IMDb id (how 128bitPlay knows it): { tvmaze_id, imdb, anime, seasons }, or null. */
+export async function lookupShowByImdb(fetch, imdb) {
+  try {
+    const res = await fetch(`https://api.tvmaze.com/lookup/shows?${new URLSearchParams({ imdb })}`);
+    if (!res.ok) return null;
+    const show = await res.json();
+    return show?.id ? lookupShowById(fetch, show.id) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function lookupShowById(fetch, id) {
+  try {
+    const res = await fetch(`https://api.tvmaze.com/shows/${encodeURIComponent(id)}?embed=seasons`);
+    return res.ok ? showInfo(await res.json()) : null;
+  } catch {
+    return null;
   }
 }

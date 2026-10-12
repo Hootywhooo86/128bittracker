@@ -10,6 +10,7 @@
 import { HttpError } from '../api/errors.js';
 import { ingest } from './index.js';
 import { enrichEpisode } from './enrich.js';
+import { cloudSync, cloudStatus, cloudEnabled, cloudOwner, setProfile } from './cloud.js';
 import { tx } from '../db/tx.js';
 
 // The family project. Its publishable key is meant to be public; the tables
@@ -45,6 +46,7 @@ export function familyStatus(ctx) {
     last_error: s.last_error ?? null,
     pulled_total: s.pulled_total ?? 0,
     pushed_total: s.pushed_total ?? 0,
+    cloud: cloudStatus(ctx),
   };
 }
 
@@ -59,8 +61,25 @@ async function auth(ctx, a, path, body) {
   return j;
 }
 
-function saveSession(ctx, a, j) {
-  put(ctx, 'family.account', {
+/**
+ * A Tracker that already synced one account's library won't take another's:
+ * the phone opens a separate library for them instead (409 other_account,
+ * with the sign-in so it can carry it over), the server says no.
+ */
+function checkOwner(ctx, a, j) {
+  const owner = cloudOwner(ctx);
+  const userId = j.user?.id;
+  if (owner && userId && owner !== userId) {
+    throw new HttpError(409, 'This Tracker holds another 128bit account\'s library. Each account gets its own: sign in on its own device or library.', {
+      code: 'other_account',
+      user_id: userId,
+      account: sessionRecord(a, j),
+    });
+  }
+}
+
+function sessionRecord(a, j) {
+  return {
     url: a.url,
     key: a.key,
     access: j.access_token,
@@ -68,7 +87,20 @@ function saveSession(ctx, a, j) {
     expires: j.expires_at || Math.floor(Date.now() / 1000) + (j.expires_in || 3600),
     email: j.user?.email ?? a.email ?? null,
     user_id: j.user?.id ?? a.user_id ?? null,
-  });
+  };
+}
+
+/** Take over a sign-in made elsewhere (the phone switching to that account's library). */
+export function familyAdopt(ctx, record) {
+  if (!record?.refresh || !record.url || !record.key) throw new HttpError(400, 'no sign-in to use');
+  put(ctx, 'family.account', record);
+  if (record.user_id && !cloudOwner(ctx)) put(ctx, 'cloud.owner', record.user_id);
+  startCursors(ctx);
+  return familyStatus(ctx);
+}
+
+function saveSession(ctx, a, j) {
+  put(ctx, 'family.account', sessionRecord(a, j));
 }
 
 function project(input) {
@@ -89,6 +121,7 @@ export async function familySignIn(ctx, { email, password, ...proj } = {}) {
   if (!email || !password) throw new HttpError(400, 'email and password are required');
   const a = project(proj);
   const j = await auth(ctx, a, 'token?grant_type=password', { email: String(email).trim(), password: String(password) });
+  checkOwner(ctx, a, j);
   saveSession(ctx, { ...a, email }, j);
   startCursors(ctx);
   return familyStatus(ctx);
@@ -99,9 +132,44 @@ export async function familySignUp(ctx, { email, password, ...proj } = {}) {
   const a = project(proj);
   const j = await auth(ctx, a, 'signup', { email: String(email).trim(), password: String(password) });
   if (!j.access_token) return { ...familyStatus(ctx), confirm_email: true };
+  checkOwner(ctx, a, j);
   saveSession(ctx, { ...a, email }, j);
   startCursors(ctx);
   return familyStatus(ctx);
+}
+
+// ---------- Google / Apple (Supabase's sign-in page, PKCE) ----------
+
+const b64url = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+/** Where to send the person: Supabase's Google/Apple page, which comes back to `redirect` with ?code=. */
+export async function familyOAuthStart(ctx, { provider, redirect, ...proj } = {}) {
+  if (!['google', 'apple'].includes(provider)) throw new HttpError(400, 'provider is google or apple');
+  if (!/^[a-z][a-z0-9+.-]*:\/\/\S+$/i.test(String(redirect ?? ''))) throw new HttpError(400, 'redirect must be a URL');
+  const a = project(proj);
+  const verifier = b64url(globalThis.crypto.getRandomValues(new Uint8Array(48)));
+  const challenge = b64url(await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
+  put(ctx, 'family.pkce', { verifier, url: a.url, key: a.key, at: Date.now() });
+  return {
+    url: `${a.url}/auth/v1/authorize?${new URLSearchParams({ provider, redirect_to: redirect, code_challenge: challenge, code_challenge_method: 's256' })}`,
+  };
+}
+
+export async function familyOAuthFinish(ctx, { code } = {}) {
+  const pending = get(ctx, 'family.pkce');
+  if (!code) throw new HttpError(400, 'code is required');
+  if (!pending || Date.now() - pending.at > 30 * 60_000) throw new HttpError(400, 'that sign-in link is old: try Google or Apple again');
+  const a = { url: pending.url, key: pending.key };
+  const j = await auth(ctx, a, 'token?grant_type=pkce', { auth_code: String(code), code_verifier: pending.verifier });
+  put(ctx, 'family.pkce', null);
+  checkOwner(ctx, a, j);
+  saveSession(ctx, a, j);
+  startCursors(ctx);
+  return familyStatus(ctx);
+}
+
+export async function familyProfile(ctx, input) {
+  return setProfile(ctx, (fn, args) => rpc(ctx, fn, args), input);
 }
 
 export async function familySignOut(ctx) {
@@ -206,7 +274,9 @@ async function pull(ctx) {
   tx(ctx.db, () => {
     for (const ev of theirs) {
       try {
-        const r = ingest(ctx, ev);
+        // With the cloud library on, the cloud applies Play's watches itself
+        // (supabase/tracker.sql) and they come down with the library.
+        const r = ingest(ctx, ev, { applyMedia: !cloudEnabled(ctx) });
         if (r.status === 'accepted') applied++;
         else if (r.status === 'duplicate') {
           // Family events can be replaced (today's steps go up): keep the latest.
@@ -257,6 +327,8 @@ export function familySync(ctx) {
     try {
       const pushed = await push(ctx);
       const pulled = await pull(ctx);
+      const a = account(ctx);
+      const cloud = await cloudSync(ctx, { rpc: (fn, args) => rpc(ctx, fn, args), userId: a?.user_id });
       const s = state(ctx);
       setState(ctx, {
         last_sync_at: new Date().toISOString(),
@@ -264,7 +336,7 @@ export function familySync(ctx) {
         pulled_total: (s.pulled_total ?? 0) + pulled,
         pushed_total: (s.pushed_total ?? 0) + pushed,
       });
-      return { pulled, pushed };
+      return { pulled: pulled + (cloud.pulled ?? 0), pushed, cloud, new_trophies: cloud.new_trophies ?? [] };
     } catch (err) {
       setState(ctx, { last_error: err.message });
       return { pulled: 0, pushed: 0, error: err.message };
@@ -275,3 +347,5 @@ export function familySync(ctx) {
   running.set(ctx.db, job);
   return job;
 }
+
+export const familyRpc = rpc;

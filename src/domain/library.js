@@ -98,8 +98,15 @@ export function listItems(ctx, { type, status, q, collection, sort = 'updated', 
     where.push('i.id IN (SELECT item_id FROM collection_items WHERE collection_id = ?)');
     args.push(Number(collection));
   }
-  const order = { updated: 'i.updated_at DESC', title: 'i.title COLLATE NOCASE', rating: 'i.rating DESC NULLS LAST, i.title', created: 'i.created_at DESC' }[sort];
-  if (!order) throw new HttpError(400, 'sort must be updated|title|rating|created');
+  const order = {
+    updated: 'i.updated_at DESC',
+    title: 'i.title COLLATE NOCASE',
+    rating: 'i.rating DESC NULLS LAST, i.title',
+    created: 'i.created_at DESC',
+    // A list's own order (only with collection=).
+    position: collection ? `(SELECT position FROM collection_items WHERE collection_id = ${Number(collection)} AND item_id = i.id), i.title` : null,
+  }[sort];
+  if (!order) throw new HttpError(400, 'sort must be updated|title|rating|created|position');
   const n = Math.min(Math.max(Number(limit) || 100, 1), 500);
   const o = Math.max(Number(offset) || 0, 0);
   return ctx.db
@@ -172,6 +179,8 @@ export function updateItem(ctx, id, input) {
 export function deleteItem(ctx, id) {
   getRow(ctx, id);
   // The trophy stays on the shelf, detached from the deleted item.
+  const { uid } = getRow(ctx, id);
+  if (uid) tombstone(ctx, 'item', uid);
   ctx.db.prepare('UPDATE trophies SET item_id = NULL WHERE item_id = ?').run(id);
   ctx.db.prepare('DELETE FROM items WHERE id = ?').run(id);
 }
@@ -214,36 +223,128 @@ function emitStatus(ctx, item, status) {
   ctx.events.emit(STATUS_EVENT[status], ref(item), { title: `${item.icon} ${verb} ${item.title}` });
 }
 
-// --- collections -----------------------------------------------------------
+// --- lists (collections) ---------------------------------------------------
+// Ordered lists of Library items. kind says which 128bitPlay screen a list shows
+// on (movie, show, anime, book, game, or mixed for all); show_in_play puts it
+// there; is_public lets anyone with its share code see it.
+
+export const LIST_KINDS = ['mixed', 'movie', 'show', 'anime', 'book', 'game', 'music', 'podcast', 'comic', 'manga'];
+
+const listRow = (ctx, id) => {
+  const row = ctx.db
+    .prepare('SELECT c.*, (SELECT COUNT(*) FROM collection_items ci WHERE ci.collection_id = c.id) AS item_count FROM collections c WHERE c.id = ?')
+    .get(id);
+  return row ? { ...row, show_in_play: !!row.show_in_play, is_public: !!row.is_public } : null;
+};
 
 export function listCollections(ctx) {
   return ctx.db
-    .prepare('SELECT c.*, COUNT(ci.item_id) AS item_count FROM collections c LEFT JOIN collection_items ci ON ci.collection_id = c.id GROUP BY c.id ORDER BY c.name')
-    .all();
+    .prepare('SELECT c.id FROM collections c ORDER BY c.position, c.name')
+    .all()
+    .map((r) => listRow(ctx, r.id));
 }
 
-export function createCollection(ctx, { name, description } = {}) {
-  const n = String(name ?? '').trim();
-  if (!n || n.length > 60) throw new HttpError(400, 'name is required (max 60 chars)');
+export function getCollection(ctx, id) {
+  const row = listRow(ctx, id);
+  if (!row) throw notFound('list');
+  return row;
+}
+
+function listFields(input, partial) {
+  const out = {};
+  if (!partial || input.name !== undefined) {
+    const n = String(input.name ?? '').trim();
+    if (!n || n.length > 60) throw new HttpError(400, 'name is required (max 60 chars)');
+    out.name = n;
+  }
+  if (input.description !== undefined) out.description = input.description ? String(input.description).slice(0, 500) : null;
+  if (input.kind !== undefined) {
+    if (!LIST_KINDS.includes(input.kind)) throw new HttpError(400, `kind must be one of ${LIST_KINDS.join(', ')}`);
+    out.kind = input.kind;
+  }
+  if (input.show_in_play !== undefined) out.show_in_play = input.show_in_play ? 1 : 0;
+  if (input.is_public !== undefined) out.is_public = input.is_public ? 1 : 0;
+  return out;
+}
+
+export function createCollection(ctx, input = {}) {
+  const v = listFields(input, false);
+  const now = new Date().toISOString();
+  const position = ctx.db.prepare('SELECT COALESCE(MAX(position) + 1, 0) AS p FROM collections').get().p;
   try {
     const res = ctx.db
-      .prepare('INSERT INTO collections (name, description, created_at) VALUES (?, ?, ?)')
-      .run(n, description ? String(description).slice(0, 500) : null, new Date().toISOString());
-    return ctx.db.prepare('SELECT * FROM collections WHERE id = ?').get(Number(res.lastInsertRowid));
+      .prepare('INSERT INTO collections (name, description, kind, show_in_play, is_public, position, created_at, updated_at, uid) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(v.name, v.description ?? null, v.kind ?? 'mixed', v.show_in_play ?? 1, v.is_public ?? 0, position, now, now, input.uid ?? null);
+    return listRow(ctx, Number(res.lastInsertRowid));
   } catch (err) {
-    if (/UNIQUE/.test(err.message)) throw new HttpError(409, 'collection already exists');
+    if (/UNIQUE/.test(err.message)) throw new HttpError(409, 'you already have a list with that name');
     throw err;
   }
 }
 
+export function updateCollection(ctx, id, input = {}) {
+  getCollection(ctx, id);
+  const v = listFields(input, true);
+  v.updated_at = new Date().toISOString();
+  const keys = Object.keys(v);
+  try {
+    ctx.db.prepare(`UPDATE collections SET ${keys.map((k) => `${k} = ?`).join(', ')} WHERE id = ?`).run(...keys.map((k) => v[k]), id);
+  } catch (err) {
+    if (/UNIQUE/.test(err.message)) throw new HttpError(409, 'you already have a list with that name');
+    throw err;
+  }
+  return listRow(ctx, id);
+}
+
 export function deleteCollection(ctx, id) {
-  const res = ctx.db.prepare('DELETE FROM collections WHERE id = ?').run(id);
-  if (!res.changes) throw notFound('collection');
+  const row = ctx.db.prepare('SELECT uid FROM collections WHERE id = ?').get(id);
+  if (!row) throw notFound('list');
+  if (row.uid) tombstone(ctx, 'list', row.uid);
+  ctx.db.prepare('DELETE FROM collections WHERE id = ?').run(id);
 }
 
 export function setCollectionMembership(ctx, collectionId, itemId, member) {
-  if (!ctx.db.prepare('SELECT 1 FROM collections WHERE id = ?').get(collectionId)) throw notFound('collection');
-  getRow(ctx, itemId);
-  if (member) ctx.db.prepare('INSERT OR IGNORE INTO collection_items (collection_id, item_id) VALUES (?, ?)').run(collectionId, itemId);
-  else ctx.db.prepare('DELETE FROM collection_items WHERE collection_id = ? AND item_id = ?').run(collectionId, itemId);
+  const list = ctx.db.prepare('SELECT uid FROM collections WHERE id = ?').get(collectionId);
+  if (!list) throw notFound('list');
+  const item = getRow(ctx, itemId);
+  const now = new Date().toISOString();
+  if (member) {
+    const position = ctx.db.prepare('SELECT COALESCE(MAX(position) + 1, 0) AS p FROM collection_items WHERE collection_id = ?').get(collectionId).p;
+    ctx.db.prepare('INSERT OR IGNORE INTO collection_items (collection_id, item_id, position, updated_at) VALUES (?, ?, ?, ?)').run(collectionId, itemId, position, now);
+  } else {
+    const res = ctx.db.prepare('DELETE FROM collection_items WHERE collection_id = ? AND item_id = ?').run(collectionId, itemId);
+    if (res.changes && list.uid && item.uid) tombstone(ctx, 'list_item', `${list.uid}|${item.uid}`);
+  }
+  ctx.db.prepare('UPDATE collections SET updated_at = ? WHERE id = ?').run(now, collectionId);
+}
+
+/** New order for a list: item ids, first to last. Items not named keep their place after them. */
+export function reorderCollection(ctx, collectionId, itemIds = []) {
+  getCollection(ctx, collectionId);
+  if (!Array.isArray(itemIds)) throw new HttpError(400, 'send item_ids as an array');
+  const now = new Date().toISOString();
+  const current = ctx.db.prepare('SELECT item_id FROM collection_items WHERE collection_id = ? ORDER BY position, rowid').all(collectionId).map((r) => r.item_id);
+  const wanted = itemIds.map(Number).filter((id) => current.includes(id));
+  const order = [...new Set([...wanted, ...current])];
+  tx(ctx.db, () => {
+    order.forEach((itemId, i) => {
+      ctx.db.prepare('UPDATE collection_items SET position = ?, updated_at = ? WHERE collection_id = ? AND item_id = ?').run(i, now, collectionId, itemId);
+    });
+  });
+  return listItems(ctx, { collection: collectionId, sort: 'position', limit: 500 });
+}
+
+/** Remember a delete so it reaches the cloud (and so 128bitPlay stops showing it). */
+export function tombstone(ctx, kind, uid) {
+  ctx.db.prepare('INSERT OR REPLACE INTO tombstones (kind, uid, at) VALUES (?, ?, ?)').run(kind, uid, new Date().toISOString());
+}
+
+/** Continue watching: shows and anime in progress with the next episode, most recent first. */
+export function upNext(ctx, { limit = 30 } = {}) {
+  return ctx.db
+    .prepare(`SELECT * FROM items WHERE type IN ('show','anime') AND status = 'active'
+               AND (progress_total IS NULL OR progress < progress_total) ORDER BY updated_at DESC LIMIT ?`)
+    .all(limit)
+    .map(hydrate)
+    .map((i) => ({ ...i, next: { season: i.meta.season ?? 1, number: Math.floor(i.progress) + 1 } }));
 }

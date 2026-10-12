@@ -6,7 +6,7 @@ import { applyPlayEvent, MEDIA_EVENTS } from './play.js';
 import { applyFamilyEvent } from './family.js';
 import { tx } from '../db/tx.js';
 
-export function ingest(ctx, raw, { defaultSource } = {}) {
+export function ingest(ctx, raw, { defaultSource, applyMedia = true } = {}) {
   const ev = normalizeEnvelope(raw, { defaultSource });
   if (ev.source === '128bittracker') {
     // Tracker's own events are emitted internally, never accepted from outside.
@@ -17,7 +17,7 @@ export function ingest(ctx, raw, { defaultSource } = {}) {
   return tx(ctx.db, () => {
     if (!ctx.events.record(ev)) return { id: ev.id, status: 'duplicate' };
     const effects = [
-      ...(ev.source === '128bitplay' || MEDIA_EVENTS.has(ev.type) ? applyPlayEvent(ctx, ev) : []),
+      ...((ev.source === '128bitplay' || MEDIA_EVENTS.has(ev.type)) && (applyMedia || !MEDIA_EVENTS.has(ev.type)) ? applyPlayEvent(ctx, ev) : []),
       ...applyFamilyEvent(ctx, ev),
     ];
     return { id: ev.id, status: 'accepted', effects };

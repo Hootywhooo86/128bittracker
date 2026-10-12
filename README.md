@@ -54,6 +54,16 @@ npm test
   Letterboxd, Goodreads and Last.fm keep your lists in step.
 - **Auto-tracking**: Plex, Jellyfin and Emby webhooks (or any JSON) log what
   you finish. Anime is detected, so it earns the golden idol.
+- **Your library in the cloud, per account**: sign in with your 128bit account
+  (email, Google or Apple) and your library, lists and trophies are on every
+  device. Everyone gets their own; nothing is shared unless you make a list or
+  your profile public.
+- **Lists**: ordered lists of anything, shown as rows in 128bitPlay. Plus Up
+  Next, Watchlist and a Coming Up calendar, all readable by the other 128bit
+  apps (`docs/TRACKER-RPC.md`).
+- **128bit Connect**: one-tap Connect for AniList, Trakt and MyAnimeList. Your
+  changes go back to them. No API keys for anyone: 128bit lends its own for
+  TMDB, Steam, IGDB, Last.fm and RetroAchievements (`docs/SUPABASE-SETUP.md`).
 - **Title search**: covers, years, creators and lengths from Open Library,
   AniList, TVmaze, iTunes, the Steam store, plus TMDB and IGDB with keys.
 - **Imports**: Goodreads, StoryGraph, Letterboxd, MyAnimeList.
@@ -120,11 +130,13 @@ Rules:
 ## Roadmap (proposed — Daniel decides)
 
 Done: reminders, backups, family account, trophies, Steam/Xbox/PlayStation,
-search, imports, calendar, media accounts, Plex/Jellyfin/Emby auto-tracking.
+search, imports, calendar, media accounts, Plex/Jellyfin/Emby auto-tracking,
+cloud library per account, lists in 128bitPlay, Google/Apple sign-in,
+128bit Connect with two-way sync.
 
 Next up:
-1. **Google / Apple sign-in** for the family account in the Android app.
-2. **Two-way sync**: write progress back to AniList / Trakt (needs their OAuth sign-in).
+1. **Friends**: follow people's public profiles, see their activity.
+2. **Year in review** card you can share.
 3. **Body & health trackers**: weight and measurements with charts (or pull
    from 128bitfit), sleep from phone health APIs.
 4. **Native SQLite on the phone** (swap `mobile/src/adapter.js`) once
@@ -133,9 +145,7 @@ Next up:
 
 Later:
 - Correlations ("you sleep better on workout days"), a Pro candidate
-- Year-in-review card you can share (pixel art, obviously)
-- Shared lists / friends' activity (opt-in), household trackers
-- Media-server integrations (Jellyfin/Plex/Kodi scrobbling), Spotify via 128bitmusic
+- Spotify via 128bitmusic
 - Pixel themes & badge packs (cosmetic IAP)
 
 ## Start-here brief for Claude

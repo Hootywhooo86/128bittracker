@@ -46,6 +46,14 @@ select pg_temp.expect(public.add_to_list('L1', '{"type": "movie", "title": "Alie
 select public.add_to_list('L1', '{"type": "movie", "title": "Dune", "year": 2021, "ids": {"imdb": "tt1160419"}}');
 select pg_temp.expect(jsonb_array_length(public.get_list_items('L1')) = 2, 'new title added');
 select public.rate('m1', 9);
+-- Watchlist from Play's title page: add, don't duplicate, remove only while just planned.
+select pg_temp.expect(public.set_watchlist('{"type": "movie", "title": "Arrival", "ids": {"imdb": "tt2543164"}}') ->> 'item_id' is not null, 'watchlisted');
+select public.set_watchlist('{"type": "movie", "title": "Arrival", "ids": {"imdb": "tt2543164"}}');
+select pg_temp.expect((select count(*) from jsonb_array_elements(public.get_watchlist()) w where w ->> 'title' = 'Arrival') = 1, 'no duplicate');
+select public.set_watchlist('{"ids": {"imdb": "tt2543164"}}', false);
+select pg_temp.expect((select count(*) from jsonb_array_elements(public.get_watchlist()) w where w ->> 'title' = 'Arrival') = 0, 'off the watchlist');
+select public.set_watchlist('{"ids": {"imdb": "tt11280740"}}', false);
+select pg_temp.expect(jsonb_array_length(public.get_item_progress('{"imdb": "tt11280740"}')) = 1, 'a show in progress isn''t removed');
 
 -- Direct table access finds nothing, even for the owner (functions only).
 select pg_temp.expect((select count(*) from public.tracker_items) = 0, 'RLS hides tables');

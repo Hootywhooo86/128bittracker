@@ -369,6 +369,38 @@ begin
   return jsonb_build_object('item_id', iid);
 end $$;
 
+-- Want to watch (or not): from another app's title page. Adds the title as planned if it isn't
+-- in the library yet; taking it off only removes it while it's still just planned.
+create or replace function public.set_watchlist(item jsonb, wanted boolean default true) returns jsonb
+language plpgsql security definer set search_path = public as $$
+#variable_conflict use_column
+declare me uuid := tracker_me(); it tracker_items;
+begin
+  if jsonb_typeof(item -> 'ids') = 'object' then
+    select i.* into it from tracker_items i, jsonb_each(item -> 'ids') k
+     where i.user_id = me and i.ids -> k.key = k.value and i.season is null
+     order by i.deleted, i.updated_at desc limit 1;
+  end if;
+  if not wanted then
+    if found and it.status = 'planned' and not it.deleted then
+      update tracker_items set deleted = true, updated_at = now(), synced_at = now() where user_id = me and id = it.id;
+    end if;
+    return jsonb_build_object('item_id', null);
+  end if;
+  if found then
+    if it.deleted then
+      update tracker_items set deleted = false, status = 'planned', updated_at = now(), synced_at = now() where user_id = me and id = it.id;
+    end if;
+    return jsonb_build_object('item_id', it.id);
+  end if;
+  if coalesce(item ->> 'title', '') = '' then raise exception 'item needs a title'; end if;
+  insert into tracker_items (user_id, id, type, title, year, cover_url, ids)
+  values (me, 'i-' || replace(gen_random_uuid()::text, '-', ''), left(coalesce(item ->> 'type', 'movie'), 24), left(item ->> 'title', 200),
+          (item ->> 'year')::int, left(item ->> 'poster', 1000), coalesce(item -> 'ids', '{}'))
+  returning * into it;
+  return jsonb_build_object('item_id', it.id);
+end $$;
+
 create or replace function public.remove_from_list(list_id text, item_id text) returns void
 language sql security definer set search_path = public as $$
   update tracker_list_items set deleted = true, updated_at = now(), synced_at = now()
@@ -537,13 +569,13 @@ revoke all on function public.tracker_apply_event(), public.tracker_item_json(pu
   public.tracker_pull(timestamptz), public.get_lists(text, boolean), public.get_list_items(text, int, int),
   public.get_watchlist(text, int), public.get_up_next(int), public.get_calendar(int), public.get_history(bigint, int),
   public.get_item_progress(jsonb), public.create_list(text, text, boolean), public.add_to_list(text, jsonb),
-  public.remove_from_list(text, text), public.rate(text, int), public.set_profile(text, text, boolean),
+  public.set_watchlist(jsonb, boolean), public.remove_from_list(text, text), public.rate(text, int), public.set_profile(text, text, boolean),
   public.get_public_list(text), public.get_public_profile(text), public.tracker_connections_status(),
   public.tracker_disconnect(text) from public, anon, authenticated;
 grant execute on function public.tracker_push(jsonb), public.tracker_pull(timestamptz), public.get_lists(text, boolean),
   public.get_list_items(text, int, int), public.get_watchlist(text, int), public.get_up_next(int), public.get_calendar(int),
   public.get_history(bigint, int), public.get_item_progress(jsonb), public.create_list(text, text, boolean),
-  public.add_to_list(text, jsonb), public.remove_from_list(text, text), public.rate(text, int),
+  public.add_to_list(text, jsonb), public.set_watchlist(jsonb, boolean), public.remove_from_list(text, text), public.rate(text, int),
   public.set_profile(text, text, boolean), public.tracker_connections_status(), public.tracker_disconnect(text) to authenticated;
 -- Shared lists and public profiles open without signing in, and only when their owner made them public.
 grant execute on function public.get_public_list(text), public.get_public_profile(text) to anon, authenticated;

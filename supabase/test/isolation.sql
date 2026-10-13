@@ -53,6 +53,14 @@ select pg_temp.expect((select count(*) from jsonb_array_elements(public.get_watc
 select public.set_watchlist('{"ids": {"imdb": "tt2543164"}}', false);
 select pg_temp.expect((select count(*) from jsonb_array_elements(public.get_watchlist()) w where w ->> 'title' = 'Arrival') = 0, 'off the watchlist');
 select public.set_watchlist('{"ids": {"imdb": "tt11280740"}}', false);
+-- Books from 128bitPlay have no ids: matched by type + title, no duplicates, found again.
+select public.set_watchlist('{"type": "book", "title": "Project Hail Mary", "creator": "Andy Weir"}');
+select public.set_watchlist('{"type": "book", "title": "project hail mary"}');
+select pg_temp.expect((select count(*) from jsonb_array_elements(public.get_watchlist('book')) w) = 1, 'book once');
+select pg_temp.expect(public.find_item('{"type": "book", "title": "Project Hail Mary"}') ->> 'creator' = 'Andy Weir', 'find by title');
+select pg_temp.expect(public.find_item('{"type": "comic", "title": "Project Hail Mary"}') is null, 'type must match');
+select public.add_to_list('L1', '{"type": "movie", "title": "Arrival", "ids": {"imdb": "tt2543164"}}');
+select pg_temp.expect(public.find_item('{"ids": {"imdb": "tt2543164"}}') ->> 'title' = 'Arrival', 'a removed watchlist title comes back via a list');
 select pg_temp.expect(jsonb_array_length(public.get_item_progress('{"imdb": "tt11280740"}')) = 1, 'a show in progress isn''t removed');
 
 -- Direct table access finds nothing, even for the owner (functions only).
@@ -105,7 +113,7 @@ reset role;
 select pg_temp.as_user('aaaaaaaa-0000-0000-0000-000000000001');
 set role authenticated;
 select pg_temp.expect(public.get_lists() -> 0 ->> 'name' = 'Sci-fi night', 'A list untouched');
-select pg_temp.expect(jsonb_array_length(public.get_list_items('L1')) = 2, 'A list items untouched');
+select pg_temp.expect(jsonb_array_length(public.get_list_items('L1')) = 3, 'A list items untouched');
 select pg_temp.expect(public.get_item_progress('{"imdb": "tt11280740"}') -> 0 ->> 'title' = 'Severance', 'A item untouched');
 select pg_temp.expect((public.get_item_progress('{"imdb": "tt0078748"}') -> 0 ->> 'rating')::int = 9, 'A rating untouched');
 select pg_temp.expect((select count(*) from jsonb_array_elements(public.get_watchlist()) w where w ->> 'title' = 'Alien') = 1, 'B watching Alien did not touch A');
@@ -126,7 +134,7 @@ create temp table share as select public.get_lists() -> 0 ->> 'share_id' as id;
 grant select on share to anon;
 reset role;
 set role anon;
-select pg_temp.expect(jsonb_array_length(public.get_public_list((select id from share)) -> 'items') = 2, 'public list readable signed out');
+select pg_temp.expect(jsonb_array_length(public.get_public_list((select id from share)) -> 'items') = 3, 'public list readable signed out');
 select pg_temp.expect(public.get_public_list((select id from share)) -> 'items' -> 0 -> 'rating' is null, 'no private fields in a public list');
 select pg_temp.expect((public.get_public_profile('pixelfan') -> 'trophies' ->> 'vhs')::int = 1, 'public profile');
 do $$ begin perform public.get_lists(); raise exception 'FAILED: anon read lists';

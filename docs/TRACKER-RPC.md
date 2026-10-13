@@ -47,13 +47,14 @@ Every item comes back in this shape:
 | `get_calendar` | `days` (≤366) | `[{ date, kind: "episode" \| "release", title, detail, item }]`, from today |
 | `get_history` | `before_ms`, `max_rows` | finished things from every 128bit app: `[{ id, app, type, at, data }]` |
 | `get_item_progress` | `ids`, e.g. `{"imdb": "tt11280740"}` | that title's items (one per season for shows) |
+| `find_item` | `item`: `{ type, title, ids? }` | the library item matched by any id, else by type + title (books and comics have no shared ids), or null |
 
 ## Writing
 
 | Function | Arguments | Does |
 |---|---|---|
 | `create_list` | `name`, `kind`, `show_in_play` (default true) | `{ id }` |
-| `add_to_list` | `list_id`, `item`: an existing `{ id }`, or `{ type, title, year, poster, ids }` | matches the library by any id (or adds the title as planned), appends it → `{ item_id }` |
+| `add_to_list` | `list_id`, `item`: an existing `{ id }`, or `{ type, title, creator, year, poster, ids }` | matches the library by any id, else type + title (or adds the title as planned), appends it → `{ item_id }` |
 | `remove_from_list` | `list_id`, `item_id` | |
 | `set_watchlist` | `item` (as above), `wanted` (bool) | adds it as planned / removes it while it's still just planned → `{ item_id }` |
 | `rate` | `item_id`, `rating` (1–10, null to clear) | |

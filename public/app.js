@@ -329,7 +329,7 @@ async function renderList(id) {
     <div class="row" style="margin-bottom:10px"><button class="btn ghost small" id="list-back">← LIBRARY</button></div>
     <h1 class="view-title"><span class="o">${esc(list.name.toUpperCase())}</span></h1>
     <p class="view-sub">${esc(LIST_KINDS[list.kind] ?? list.kind)} · ${list.item_count} ${list.item_count === 1 ? 'item' : 'items'}${list.show_in_play ? ' · ▶ shows in 128bitPlay' : ''}${list.is_public ? ' · 🌐 public' : ''}${list.description ? `<br>${esc(list.description)}` : ''}</p>
-    <div class="row" style="margin-bottom:16px"><button class="btn" id="list-add">+ ADD FROM LIBRARY</button><button class="btn ghost" id="list-edit">SETTINGS</button></div>
+    <div class="row" style="margin-bottom:16px"><button class="btn" id="list-search">+ SEARCH &amp; ADD</button><button class="btn ghost" id="list-add">FROM LIBRARY</button><button class="btn ghost" id="list-edit">SETTINGS</button></div>
     ${list.is_public && list.share_id ? `<p class="muted" style="font-size:13px;margin-bottom:12px">Share code: <code>${esc(list.share_id)}</code></p>` : ''}
     ${list.items.length ? `<div class="list-items">${list.items.map((i, n) => `<div class="list-row">
         <div class="li-cover">${i.cover_url ? `<img src="${esc(i.cover_url)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span aria-hidden="true">${esc(i.icon)}</span>`}</div>
@@ -341,6 +341,8 @@ async function renderList(id) {
   $('#list-back').addEventListener('click', () => { state.libList = null; guard(renderLibrary)(); });
   $('#list-edit').addEventListener('click', () => listModal(list));
   $('#list-add').addEventListener('click', guard(() => addToListModal(list)));
+  // Anything from the catalogs (TMDB, AniList, Open Library, IGDB…) straight onto this list.
+  $('#list-search').addEventListener('click', () => itemModal(list.kind !== 'mixed' && META.item_types[list.kind] ? { type: list.kind } : {}, { list }));
   view.querySelectorAll('[data-move]').forEach((b) => b.addEventListener('click', guard(async () => {
     const ids = list.items.map((i) => i.id);
     const from = Number(b.dataset.move);
@@ -415,11 +417,13 @@ function tile(i) {
   </button>`;
 }
 
-function itemModal(item = {}) {
+/** Add (or edit) a library item. opts.list: opened from a list, so it goes on that list too. */
+function itemModal(item = {}, opts = {}) {
   const editing = !!item.id;
   const types = Object.keys(META.item_types);
   let picked = {};
-  modal(editing ? `EDIT ${item.title}` : 'ADD TO LIBRARY', `${editing ? '' : `<div class="search-box">
+  const onLists = new Set(opts.list ? [opts.list.id] : []);
+  modal(editing ? `EDIT ${item.title}` : opts.list ? `ADD TO ${opts.list.name}` : 'ADD TO LIBRARY', `${editing ? '' : `<div class="search-box">
       <div class="row"><input class="input" id="sr-q" type="search" placeholder="Search to fill in cover & details" aria-label="Search titles" style="flex:1;min-width:0">
         <button type="button" class="btn small" id="sr-go">SEARCH</button></div>
       <div id="sr-results" class="sr-results"></div><div id="sr-seasons"></div></div>`}<form>
@@ -433,8 +437,23 @@ function itemModal(item = {}) {
       <div class="field"><label for="if-cover">COVER IMAGE URL</label><input class="input" id="if-cover" name="cover_url" type="url" value="${esc(item.cover_url ?? '')}" placeholder="https://…"></div>
       <div class="field"><label for="if-season">SEASON (SHOWS)</label><input class="input" id="if-season" name="season" type="number" min="0" value="${esc(item.meta?.season ?? '')}" placeholder="1"></div>
     </div>
+    ${editing ? '' : '<div class="field"><label>ADD TO LISTS</label><div class="chips" id="if-lists"><span class="muted" style="font-size:13px">…</span></div></div>'}
     <button class="btn teal">${editing ? 'SAVE' : 'ADD'}</button></form>`, (m, close) => {
     const form = m.querySelector('form');
+    if (!editing) {
+      guard(async () => {
+        const lists = await api('GET', '/collections');
+        const box = m.querySelector('#if-lists');
+        box.innerHTML = lists.length
+          ? lists.map((l) => `<button type="button" class="chip" data-pick-list="${l.id}" aria-pressed="${onLists.has(l.id)}">📋 ${esc(l.name)}</button>`).join('')
+          : '<span class="muted" style="font-size:13px">No lists yet: Library → + NEW LIST.</span>';
+        box.querySelectorAll('[data-pick-list]').forEach((b) => b.addEventListener('click', () => {
+          const id = Number(b.dataset.pickList);
+          if (onLists.has(id)) onLists.delete(id); else onLists.add(id);
+          b.setAttribute('aria-pressed', String(onLists.has(id)));
+        }));
+      })();
+    }
     const set = (name, v) => { if (v != null && v !== '') form.elements[name].value = v; };
     const runSearch = guard(async () => {
       const q = m.querySelector('#sr-q').value.trim();
@@ -471,7 +490,9 @@ function itemModal(item = {}) {
       const { season, ...f } = formData(e.target);
       const body = { ...f, year: f.year || null, progress_total: f.progress_total || null, cover_url: f.cover_url || null, creator: f.creator || null, meta: { ...picked, season: season ? Number(season) : null } };
       const saved = editing ? await api('PATCH', `/items/${item.id}`, body) : await api('POST', '/items', body);
-      close(); toast(editing ? 'SAVED' : 'ADDED'); await renderLibrary();
+      if (!editing) for (const listId of onLists) await api('PUT', `/collections/${listId}/items/${saved.id}`);
+      close(); toast(editing ? 'SAVED' : onLists.size ? `ADDED · ON ${onLists.size} ${onLists.size === 1 ? 'LIST' : 'LISTS'}` : 'ADDED');
+      await renderLibrary();
       if (editing) itemDetail(await api('GET', `/items/${saved.id}`));
     }));
   });

@@ -341,6 +341,49 @@ begin
 end $$;
 
 -- item: an existing item id, or a title from another app: {type, title, year, poster, ids: {tmdb, imdb, ...}}.
+-- The library item another app means: by any id it knows, else by type + title. Internal.
+create or replace function public.tracker_find(me uuid, item jsonb) returns public.tracker_items
+language plpgsql stable security definer set search_path = public as $$
+declare it tracker_items;
+begin
+  if jsonb_typeof(item -> 'ids') = 'object' and item -> 'ids' <> '{}' then
+    select i.* into it from tracker_items i, jsonb_each(item -> 'ids') k
+     where i.user_id = me and i.ids -> k.key = k.value and i.season is null
+     order by i.deleted, i.updated_at desc limit 1;
+    if found then return it; end if;
+  end if;
+  if coalesce(item ->> 'title', '') <> '' then
+    select i.* into it from tracker_items i
+     where i.user_id = me and i.season is null and lower(i.title) = lower(item ->> 'title')
+       and (item ->> 'type' is null or i.type = item ->> 'type')
+     order by i.deleted, i.updated_at desc limit 1;
+    if found then return it; end if;
+  end if;
+  return null;
+end $$;
+
+-- A title from another app, made sure it's in the library (planned if new). Internal.
+create or replace function public.tracker_ensure(me uuid, item jsonb) returns text
+language plpgsql security definer set search_path = public as $$
+declare it tracker_items; iid text := item ->> 'id';
+begin
+  if iid is not null and exists (select 1 from tracker_items where user_id = me and id = iid) then return iid; end if;
+  it := tracker_find(me, item);
+  if it.id is not null then
+    update tracker_items set ids = ids || coalesce(item -> 'ids', '{}'), deleted = false,
+        status = case when deleted then 'planned' else status end,
+        cover_url = coalesce(cover_url, left(item ->> 'poster', 1000)), updated_at = now(), synced_at = now()
+     where user_id = me and id = it.id;
+    return it.id;
+  end if;
+  if coalesce(item ->> 'title', '') = '' then raise exception 'item needs an id or a title'; end if;
+  iid := 'i-' || replace(gen_random_uuid()::text, '-', '');
+  insert into tracker_items (user_id, id, type, title, creator, year, cover_url, backdrop_url, ids)
+  values (me, iid, left(coalesce(item ->> 'type', 'movie'), 24), left(item ->> 'title', 200), left(item ->> 'creator', 120),
+          (item ->> 'year')::int, left(item ->> 'poster', 1000), left(item ->> 'backdrop', 1000), coalesce(item -> 'ids', '{}'));
+  return iid;
+end $$;
+
 create or replace function public.add_to_list(list_id text, item jsonb) returns jsonb
 language plpgsql security definer set search_path = public as $$
 #variable_conflict use_column
@@ -349,19 +392,7 @@ begin
   if not exists (select 1 from tracker_lists l where l.user_id = me and l.id = add_to_list.list_id and not l.deleted) then
     raise exception 'No such list';
   end if;
-  iid := item ->> 'id';
-  if iid is not null and not exists (select 1 from tracker_items where user_id = me and id = iid) then iid := null; end if;
-  if iid is null and jsonb_typeof(item -> 'ids') = 'object' then
-    select i.id into iid from tracker_items i, jsonb_each(item -> 'ids') k
-     where i.user_id = me and not i.deleted and i.ids -> k.key = k.value and i.season is null limit 1;
-  end if;
-  if iid is null then
-    if coalesce(item ->> 'title', '') = '' then raise exception 'item needs an id or a title'; end if;
-    iid := 'i-' || replace(gen_random_uuid()::text, '-', '');
-    insert into tracker_items (user_id, id, type, title, year, cover_url, backdrop_url, ids)
-    values (me, iid, left(coalesce(item ->> 'type', 'movie'), 24), left(item ->> 'title', 200), (item ->> 'year')::int,
-            left(item ->> 'poster', 1000), left(item ->> 'backdrop', 1000), coalesce(item -> 'ids', '{}'));
-  end if;
+  iid := tracker_ensure(me, item);
   insert into tracker_list_items as t (user_id, list_id, item_id, position)
   values (me, add_to_list.list_id, iid,
           coalesce((select max(position) + 1 from tracker_list_items x where x.user_id = me and x.list_id = add_to_list.list_id and not x.deleted), 0))
@@ -369,36 +400,29 @@ begin
   return jsonb_build_object('item_id', iid);
 end $$;
 
+-- Is this title in my library? By any id, else by type + title (books and comics from 128bitPlay).
+create or replace function public.find_item(item jsonb) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare it tracker_items := tracker_find(tracker_me(), item);
+begin
+  if it.id is null or it.deleted then return null; end if;
+  return tracker_item_json(it);
+end $$;
+
 -- Want to watch (or not): from another app's title page. Adds the title as planned if it isn't
 -- in the library yet; taking it off only removes it while it's still just planned.
 create or replace function public.set_watchlist(item jsonb, wanted boolean default true) returns jsonb
 language plpgsql security definer set search_path = public as $$
-#variable_conflict use_column
 declare me uuid := tracker_me(); it tracker_items;
 begin
-  if jsonb_typeof(item -> 'ids') = 'object' then
-    select i.* into it from tracker_items i, jsonb_each(item -> 'ids') k
-     where i.user_id = me and i.ids -> k.key = k.value and i.season is null
-     order by i.deleted, i.updated_at desc limit 1;
-  end if;
   if not wanted then
-    if found and it.status = 'planned' and not it.deleted then
+    it := tracker_find(me, item);
+    if it.id is not null and it.status = 'planned' and not it.deleted then
       update tracker_items set deleted = true, updated_at = now(), synced_at = now() where user_id = me and id = it.id;
     end if;
     return jsonb_build_object('item_id', null);
   end if;
-  if found then
-    if it.deleted then
-      update tracker_items set deleted = false, status = 'planned', updated_at = now(), synced_at = now() where user_id = me and id = it.id;
-    end if;
-    return jsonb_build_object('item_id', it.id);
-  end if;
-  if coalesce(item ->> 'title', '') = '' then raise exception 'item needs a title'; end if;
-  insert into tracker_items (user_id, id, type, title, year, cover_url, ids)
-  values (me, 'i-' || replace(gen_random_uuid()::text, '-', ''), left(coalesce(item ->> 'type', 'movie'), 24), left(item ->> 'title', 200),
-          (item ->> 'year')::int, left(item ->> 'poster', 1000), coalesce(item -> 'ids', '{}'))
-  returning * into it;
-  return jsonb_build_object('item_id', it.id);
+  return jsonb_build_object('item_id', tracker_ensure(me, item));
 end $$;
 
 create or replace function public.remove_from_list(list_id text, item_id text) returns void
@@ -565,7 +589,7 @@ drop trigger if exists tracker_apply_event on public.family_events;
 create trigger tracker_apply_event after insert on public.family_events
   for each row execute function public.tracker_apply_event();
 
-revoke all on function public.tracker_apply_event(), public.tracker_item_json(public.tracker_items), public.tracker_me(), public.tracker_push(jsonb),
+revoke all on function public.tracker_find(uuid, jsonb), public.tracker_ensure(uuid, jsonb), public.find_item(jsonb), public.tracker_apply_event(), public.tracker_item_json(public.tracker_items), public.tracker_me(), public.tracker_push(jsonb),
   public.tracker_pull(timestamptz), public.get_lists(text, boolean), public.get_list_items(text, int, int),
   public.get_watchlist(text, int), public.get_up_next(int), public.get_calendar(int), public.get_history(bigint, int),
   public.get_item_progress(jsonb), public.create_list(text, text, boolean), public.add_to_list(text, jsonb),
@@ -575,7 +599,7 @@ revoke all on function public.tracker_apply_event(), public.tracker_item_json(pu
 grant execute on function public.tracker_push(jsonb), public.tracker_pull(timestamptz), public.get_lists(text, boolean),
   public.get_list_items(text, int, int), public.get_watchlist(text, int), public.get_up_next(int), public.get_calendar(int),
   public.get_history(bigint, int), public.get_item_progress(jsonb), public.create_list(text, text, boolean),
-  public.add_to_list(text, jsonb), public.set_watchlist(jsonb, boolean), public.remove_from_list(text, text), public.rate(text, int),
+  public.add_to_list(text, jsonb), public.set_watchlist(jsonb, boolean), public.find_item(jsonb), public.remove_from_list(text, text), public.rate(text, int),
   public.set_profile(text, text, boolean), public.tracker_connections_status(), public.tracker_disconnect(text) to authenticated;
 -- Shared lists and public profiles open without signing in, and only when their owner made them public.
 grant execute on function public.get_public_list(text), public.get_public_profile(text) to anon, authenticated;

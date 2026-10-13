@@ -164,13 +164,39 @@ function mediaCard(i, sub, actions = '', pct = null) {
       <div class="up-actions">${actions}</div></div></div>`;
 }
 
-// One colour per kind, everywhere: calendar dots, Continue watching, the timeline.
-const KIND_COLOR = { show: '#facc15', anime: '#f472b6', movie: '#a855f7', book: '#a0522d', game: '#2dd4bf' };
+// One colour per kind, everywhere: calendar dots, Continue, the timeline. Changed in
+// settings (🎨 COLOURS) and kept on this device.
+const DEFAULT_COLORS = { show: '#facc15', anime: '#f472b6', movie: '#a855f7', book: '#a0522d', game: '#2dd4bf', accent: '#2dd4bf', heading: '#ff9f1c', background: '#0b0b16' };
+const COLOR_LABEL = { show: 'TV shows', anime: 'Anime', movie: 'Movies', book: 'Audiobooks & books', game: 'Games', accent: 'Buttons & highlights', heading: 'Headings & main buttons', background: 'Background' };
+const KIND_COLOR = { ...DEFAULT_COLORS };
+try { Object.assign(KIND_COLOR, JSON.parse(localStorage.getItem('tracker.colors') || '{}')); } catch { /* no storage */ }
+const shade = (hex, f) => '#' + [1, 3, 5].map((i) => Math.round(parseInt(hex.slice(i, i + 2), 16) * f).toString(16).padStart(2, '0')).join('');
+function applyColors() {
+  const r = document.documentElement.style;
+  r.setProperty('--teal', KIND_COLOR.accent); r.setProperty('--teal-d', shade(KIND_COLOR.accent, 0.45));
+  r.setProperty('--orange', KIND_COLOR.heading); r.setProperty('--orange-d', shade(KIND_COLOR.heading, 0.55));
+  r.setProperty('--bg', KIND_COLOR.background);
+}
+applyColors();
+function saveColors(patch) {
+  Object.assign(KIND_COLOR, patch);
+  const changed = Object.fromEntries(Object.entries(KIND_COLOR).filter(([k, v]) => DEFAULT_COLORS[k] !== v));
+  try { localStorage.setItem('tracker.colors', JSON.stringify(changed)); } catch { /* no storage */ }
+  applyColors();
+}
+
+/** Settings → 🎨 COLOURS: a picker per kind plus the app's own colours. */
+function renderColors(el) {
+  el.innerHTML = `<div class="colors">${Object.keys(DEFAULT_COLORS).map((k) => `<label class="color-row"><input type="color" data-color="${k}" value="${esc(KIND_COLOR[k])}"><span>${esc(COLOR_LABEL[k])}</span></label>`).join('')}</div>
+    <div class="row" style="margin-top:10px"><button class="btn ghost small" id="colors-reset">RESET TO DEFAULT</button></div>`;
+  el.querySelectorAll('[data-color]').forEach((i) => i.addEventListener('input', () => saveColors({ [i.dataset.color]: i.value })));
+  el.querySelector('#colors-reset').addEventListener('click', () => { saveColors({ ...DEFAULT_COLORS }); renderColors(el); toast('COLOURS RESET'); });
+}
 const KIND_NAME = { show: 'TV', anime: 'Anime', movie: 'Movies', book: 'Audiobooks & books', game: 'Games' };
 const kindOf = (e) => e.type ?? (e.kind === 'episode' ? 'show' : 'game');
 
-// Continue watching: movies, then TV shows, then anime. TV / anime show the
-// episode you're partway through, else the next one that's out.
+// Continue: movies, TV shows, anime, then audiobooks & books. TV / anime show
+// the episode you're partway through, else the next one that's out.
 async function renderContinue(el, cal = null) {
   const [active, upnext] = await Promise.all([api('GET', '/items?status=active&limit=500'), api('GET', '/upnext?limit=100').catch(() => [])]);
   if (!el.isConnected) return;
@@ -199,10 +225,18 @@ async function renderContinue(el, cal = null) {
     })],
     ['show', '📺 TV SHOWS', shows.filter((u) => u.type === 'show').map(epCard)],
     ['anime', '🌸 ANIME', shows.filter((u) => u.type === 'anime').map(epCard)],
+    // Listening / reading now: audiobooks first.
+    ['book', '🎧 AUDIOBOOKS & BOOKS', active.filter((i) => i.type === 'book')
+      .sort((a, b) => Number(b.meta?.format === 'audiobook') - Number(a.meta?.format === 'audiobook') || recent(a, b))
+      .map((i) => {
+        const { pct, label } = progressOf(i);
+        const audio = i.meta?.format === 'audiobook';
+        return mediaCard(i, `${audio ? '🎧 ' : '📖 '}${esc(label || (audio ? 'Listening' : 'Reading'))}${i.creator ? ` · ${esc(i.creator)}` : ''}`, playBtn(i, null, audio ? '▶ LISTEN' : '▶ READ'), pct);
+      })],
   ];
   const body = groups.filter(([, , cards]) => cards.length)
     .map(([k, title, cards]) => `<h3 class="sub kind" style="--c:${KIND_COLOR[k]}">${title}</h3><div class="upnext kinded" style="--c:${KIND_COLOR[k]}">${cards.join('')}</div>`).join('');
-  el.innerHTML = `<h2 class="sec">▶ CONTINUE WATCHING</h2>${body || '<p class="muted">Start something in 128bitPlay and it shows up here.</p>'}`;
+  el.innerHTML = `<h2 class="sec">▶ CONTINUE</h2>${body || '<p class="muted">Start something in 128bitPlay and it shows up here.</p>'}`;
   el.querySelectorAll('[data-watched]').forEach((b) => b.addEventListener('click', guard(async () => {
     b.disabled = true;
     await api('POST', `/items/${b.dataset.watched}/sessions`, { progress: Number(b.dataset.next) });
@@ -977,8 +1011,13 @@ async function renderConnect() {
 
     <h2 class="sec">YOUR DATA</h2>
     <p class="muted" style="margin-bottom:12px">Local-first: it all lives in one SQLite file on your machine.</p>
-    <div class="row"><a class="btn ghost" href="#" id="export">⬇ EXPORT JSON</a>${importButton()}</div>`;
+    <div class="row"><a class="btn ghost" href="#" id="export">⬇ EXPORT JSON</a>${importButton()}</div>
+    <h2 class="sec">🎨 COLOURS</h2>
+    <p class="muted" style="font-size:13px;line-height:1.6;margin-bottom:10px">Pick a colour for each kind (calendar, Continue, timeline) and for the app itself. Saved on this device.</p>
+    <div id="colors"></div>
+`;
   bindImport(renderConnect);
+  renderColors($('#colors'));
   await renderFamily($('#family'));
   await renderPlatforms($('#platforms'), 'games');
   await renderPlatforms($('#media-accounts'), 'media');
@@ -1374,9 +1413,13 @@ async function renderSync() {
     <p class="muted" style="margin-bottom:12px">Updates come from GitHub Releases and install over this app, keeping your data.</p>
     <div class="row" style="margin-bottom:12px"><button class="btn ghost" id="up-check">⟳ CHECK FOR UPDATES</button><span class="muted" id="up-version"></span></div>
     </details>
+    <h2 class="sec">🎨 COLOURS</h2>
+    <p class="muted" style="font-size:13px;line-height:1.6;margin-bottom:10px">Pick a colour for each kind (calendar, Continue, timeline) and for the app itself. Saved on this device.</p>
+    <div id="colors"></div>
     <h2 class="sec">FILES</h2>
     <div class="row"><button class="btn ghost" id="export">⬇ EXPORT JSON</button>${importButton()}</div>`;
   bindImport(renderSync);
+  renderColors($('#colors'));
   await renderFamily($('#family'));
   await renderHealth($('#health'));
   await renderPlatforms($('#platforms'), 'games');

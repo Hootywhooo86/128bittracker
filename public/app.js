@@ -643,6 +643,12 @@ async function renderStats() {
 }
 const kpi = (k, v, s) => `<div class="kpi"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div><div class="s">${esc(s)}</div></div>`;
 
+// One account: the catalogs come built in. Other trackers are only for moving in.
+const ONE_ACCOUNT = `<p class="muted" style="font-size:13px;line-height:1.7;margin:4px 0 6px">One account for everything. Movies, TV, anime, books, comics and games are built in: search, posters, seasons and new episodes all work, with nothing to connect.</p>`;
+const MOVING_IN = `<details class="advanced"><summary class="sec">MOVING FROM ANOTHER TRACKER?</summary>
+    <p class="muted" style="font-size:13px;line-height:1.6;margin-bottom:10px">Bring your history from Trakt, AniList, MyAnimeList, Letterboxd, Goodreads, Hardcover or Last.fm. Optional: you don't need any of these to use Tracker. (Files work too: Library → Import.)</p>
+    <div id="media-accounts"></div></details>`;
+
 // ---------- CONNECT ----------
 async function renderConnect() {
   if (platform !== 'web') return renderSync();
@@ -652,21 +658,22 @@ async function renderConnect() {
     <h1 class="view-title"><span class="t">CONNECT</span></h1>
     <p class="view-sub">Plug 128bitplay and the rest of the family in. Full reference in <code>docs/API.md</code>.</p>
 
-    <h2 class="sec">128BIT FAMILY ACCOUNT</h2>
+    <h2 class="sec">YOUR 128BIT ACCOUNT</h2>
     <div id="family"></div>
+    ${ONE_ACCOUNT}
 
-    <h2 class="sec">GAME PLATFORMS</h2>
+    <h2 class="sec">GAME PLATFORMS (OPTIONAL)</h2>
+    <p class="muted" style="font-size:13px;line-height:1.6;margin-bottom:10px">Pull in play time and 100% achievements: just your profile name, no keys.</p>
     <div id="platforms"></div>
 
-    <h2 class="sec">MEDIA ACCOUNTS</h2>
-    <p class="muted" style="font-size:13px;line-height:1.6;margin-bottom:10px">Bring your lists from the services you already use. Free, and they re-sync every 12 hours.</p>
-    <div id="media-accounts"></div>
+    ${MOVING_IN}
 
     <h2 class="sec">AUTO-TRACK: PLEX, JELLYFIN, EMBY</h2>
     ${scrobbleHelp(origin)}
 
-    <h2 class="sec">MOVIE, TV &amp; GAME DATA</h2>
-    <div id="services"></div>
+    <details class="advanced"><summary class="sec">ADVANCED: YOUR OWN API KEYS</summary>
+    <p class="muted" style="font-size:13px;line-height:1.6;margin-bottom:10px">Not needed with a 128bit account. Only for running Tracker without one.</p>
+    <div id="services"></div></details>
 
     <h2 class="sec">API KEYS</h2>
     <form id="key-form" class="row" style="margin-bottom:8px">
@@ -1039,16 +1046,18 @@ async function renderSync() {
   view.innerHTML = `
     <h1 class="view-title"><span class="t">SYNC</span></h1>
     <p class="view-sub">Everything lives on this phone and works offline. Link a Tracker server to pull in 128bitplay and other 128bit apps, and send your streaks back out.</p>
-    <h2 class="sec">128BIT FAMILY ACCOUNT</h2>
+    <h2 class="sec">YOUR 128BIT ACCOUNT</h2>
     <div id="family"></div>
-    <h2 class="sec">GAME PLATFORMS</h2>
+    ${ONE_ACCOUNT}
+    <h2 class="sec">GAME PLATFORMS (OPTIONAL)</h2>
+    <p class="muted" style="font-size:13px;line-height:1.6;margin-bottom:10px">Pull in play time and 100% achievements: just your profile name, no keys.</p>
     <div id="platforms"></div>
-    <h2 class="sec">MEDIA ACCOUNTS</h2>
-    <p class="muted" style="font-size:13px;line-height:1.6;margin-bottom:10px">Bring your lists from the services you already use. Free, and they re-sync every 12 hours.</p>
-    <div id="media-accounts"></div>
-    <h2 class="sec">MOVIE, TV &amp; GAME DATA</h2>
+    ${MOVING_IN}
+    <details class="advanced"><summary class="sec">ADVANCED</summary>
+    <h2 class="sec">YOUR OWN API KEYS</h2>
+    <p class="muted" style="font-size:13px;line-height:1.6;margin-bottom:10px">Not needed with a 128bit account. Only for using Tracker without one.</p>
     <div id="services"></div>
-    <h2 class="sec">TRACKER SERVER (OPTIONAL)</h2>
+    <h2 class="sec">TRACKER SERVER</h2>
     <form id="sync-form">
       <div class="field"><label for="sy-url">SERVER URL</label><input class="input" id="sy-url" name="server_url" type="url" inputmode="url" placeholder="https://tracker.example.com" value="${esc(s.server_url ?? '')}"></div>
       <div class="field"><label for="sy-key">SYNC KEY</label><input class="input" id="sy-key" name="api_key" autocomplete="off" placeholder="${s.has_key ? 'saved (tb128_…) — paste to replace' : 'tb128_…'}"></div>
@@ -1072,6 +1081,7 @@ async function renderSync() {
     <h2 class="sec">APP</h2>
     <p class="muted" style="margin-bottom:12px">Updates come from GitHub Releases and install over this app, keeping your data.</p>
     <div class="row" style="margin-bottom:12px"><button class="btn ghost" id="up-check">⟳ CHECK FOR UPDATES</button><span class="muted" id="up-version"></span></div>
+    </details>
     <h2 class="sec">FILES</h2>
     <div class="row"><button class="btn ghost" id="export">⬇ EXPORT JSON</button>${importButton()}</div>`;
   bindImport(renderSync);

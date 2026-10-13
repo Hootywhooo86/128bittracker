@@ -6,7 +6,7 @@
 // Each day becomes one health.day event, updated in place as the day goes on,
 // and the Steps tracker is topped up to the day's total (never double-counted).
 import { HttpError } from '../api/errors.js';
-import { isDay } from '../domain/dates.js';
+import { isDay, toDay } from '../domain/dates.js';
 import { logTracker } from '../domain/trackers.js';
 import { ingest } from './index.js';
 import { tx } from '../db/tx.js';
@@ -31,6 +31,13 @@ export function healthStatus(ctx) {
     enabled: !!kvGet(db, 'health.enabled'),
     last_sync_at: kvGet(db, 'health.last_sync_at'),
     workouts: db.prepare("SELECT COUNT(*) AS n FROM events WHERE source = ? AND type = 'workout.logged'").get(SOURCE).n,
+    // Today's step count from each source, to see what's coming in.
+    today: Object.fromEntries(
+      db.prepare("SELECT source, payload FROM events WHERE type = 'health.day' AND (id = ? OR (source <> ? AND occurred_at >= ?)) ORDER BY occurred_at")
+        .all(`hc-day-${toDay()}`, SOURCE, new Date(`${toDay()}T00:00:00`).toISOString())
+        .map((r) => [r.source, JSON.parse(r.payload).steps])
+        .filter(([, n]) => n != null),
+    ),
   };
 }
 
@@ -90,7 +97,7 @@ export function applyHealth(ctx, body = {}) {
       if (res.status === 'duplicate') {
         ctx.db.prepare('UPDATE events SET payload = ?, title = ? WHERE id = ?').run(JSON.stringify(data), title, id);
       }
-      if (steps != null) topUpSteps(ctx, d.day, Math.round(steps));
+      if (steps != null) topUpSteps(ctx, d.day, Math.round(steps), SOURCE);
     });
     updatedDays++;
   }
@@ -99,14 +106,28 @@ export function applyHealth(ctx, body = {}) {
   return { workouts_added: added, days: updatedDays };
 }
 
+// Where step counts come from on their own: Health Connect here, 128bitFit via the family feed.
+const STEP_SOURCES = [SOURCE, '128bitfit'];
+
 // Steps trackers (unit "steps", or listening to health.steps) get the day's
-// total: only the part Health Connect hasn't already logged is added.
-function topUpSteps(ctx, day, total) {
+// total: only what the step sources haven't already logged is added, so
+// Health Connect and Fit both reporting the same walk count it once (the
+// higher number wins). Steps you log by hand come on top.
+export function topUpSteps(ctx, day, total, source = SOURCE) {
+  if (!isDay(day) || !Number.isFinite(total) || total <= 0) return;
   const trackers = ctx.db
     .prepare("SELECT id FROM trackers WHERE archived = 0 AND kind = 'count' AND (unit = 'steps' OR (',' || listens || ',') LIKE '%,health.steps,%')")
     .all();
+  const marks = STEP_SOURCES.map(() => '?').join(',');
   for (const t of trackers) {
-    const have = ctx.db.prepare('SELECT COALESCE(SUM(value), 0) AS n FROM logs WHERE tracker_id = ? AND day = ? AND source = ?').get(t.id, day, SOURCE).n;
-    if (total > have) logTracker(ctx, t.id, { value: total - have, day }, { source: SOURCE });
+    const have = ctx.db.prepare(`SELECT COALESCE(SUM(value), 0) AS n FROM logs WHERE tracker_id = ? AND day = ? AND source IN (${marks})`).get(t.id, day, ...STEP_SOURCES).n;
+    if (total > have) logTracker(ctx, t.id, { value: total - have, day }, { source });
   }
+}
+
+/** A health.day from another app (128bitFit): its steps fill the Steps tracker too. */
+export function applyHealthDay(ctx, ev) {
+  if (ev.type !== 'health.day' || ev.data?.steps == null) return;
+  const day = isDay(ev.data.day) ? ev.data.day : toDay(ev.occurred_at);
+  topUpSteps(ctx, day, Math.round(Number(ev.data.steps)), ev.source);
 }

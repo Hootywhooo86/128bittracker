@@ -6,12 +6,14 @@
 // Logged value: check/scale → 1, count/duration → data.minutes ?? data.value ?? 1.
 import { logTracker } from '../domain/trackers.js';
 import { toDay } from '../domain/dates.js';
+import { applyHealthDay } from './health.js';
 
 export function applyFamilyEvent(ctx, ev) {
   const trackers = ctx.db
     .prepare("SELECT id, kind FROM trackers WHERE archived = 0 AND (',' || listens || ',') LIKE ?")
     .all(`%,${ev.type},%`);
   const effects = [];
+  if (ev.type === 'health.day' && ev.source !== 'healthconnect') applyHealthDay(ctx, ev);
   for (const t of trackers) {
     const value = t.kind === 'check' || t.kind === 'scale' ? 1 : Number(ev.data.minutes ?? ev.data.value ?? 1);
     if (!Number.isFinite(value) || value <= 0) continue;

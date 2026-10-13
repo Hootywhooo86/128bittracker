@@ -156,15 +156,24 @@ test('calendar: next episodes and game releases, cached', async () => {
   const { createItem } = await import('../src/domain/library.js');
   let calls = 0;
   const soon = new Date(Date.now() + 5 * 86400_000);
+  const later = new Date(Date.now() + 9 * 86400_000);
+  const day = (d) => d.toISOString().slice(0, 10);
   const fetch = async (url, init = {}) => {
     calls++;
     const u = String(url);
     const body = (x) => new Response(JSON.stringify(x), { status: 200 });
     if (u.includes('tvmaze.com/singlesearch')) return body({ id: 44933 });
-    if (u.includes('tvmaze.com/shows/44933')) return body({ _embedded: { nextepisode: { airdate: soon.toISOString().slice(0, 10), season: 3, number: 1, name: 'Return' } } });
+    if (u.includes('tvmaze.com/shows/44933/episodes')) {
+      return body([
+        { airdate: '2020-01-01', season: 2, number: 10, name: 'Old' },
+        { airdate: soon.toISOString().slice(0, 10), season: 3, number: 1, name: 'Return' },
+        { airdate: later.toISOString().slice(0, 10), season: 3, number: 2, name: 'Next' },
+      ]);
+    }
+    if (u.includes('googleapis.com/books')) return body({ items: [{ volumeInfo: { title: 'Wind and Truth II', publishedDate: later.toISOString().slice(0, 10) } }] });
     if (u.includes('anilist')) {
       const v = JSON.parse(init.body).variables;
-      if (v.ids?.length) return body({ data: { byId: { media: [{ id: 7, nextAiringEpisode: { airingAt: Math.floor(soon.getTime() / 1000) + 86400, episode: 12 } }] }, byName: null } });
+      if (v.ids?.length) return body({ data: { byId: { media: [{ id: 7, airingSchedule: { nodes: [{ airingAt: Math.floor(soon.getTime() / 1000) + 86400, episode: 12 }] } }] }, byName: null } });
       return body({ data: { byId: { media: [] }, byName: null } });
     }
     if (u.includes('appdetails')) return body({ 1145350: { success: true, data: { release_date: { coming_soon: true, date: 'Q4 2026' } } } });
@@ -176,11 +185,16 @@ test('calendar: next episodes and game releases, cached', async () => {
   createItem(c, { type: 'anime', title: 'Frieren S3', status: 'active', meta: { anilist_id: 7 } });
   createItem(c, { type: 'game', title: 'Hades III', status: 'planned', meta: { provider: 'steam', provider_id: '1145350' } });
   createItem(c, { type: 'show', title: 'Finished Show', status: 'done' });
+  createItem(c, { type: 'book', title: 'Wind and Truth II', creator: 'Brandon Sanderson', status: 'planned', meta: { format: 'audiobook' } });
+  createItem(c, { type: 'movie', title: 'Set By Hand', status: 'planned', meta: { release_date: day(later) } });
   const list = await upcoming(c);
-  assert.deepEqual(list.map((e) => [e.title, e.detail]), [
-    ['Severance', 'S3 E1 · Return'],
-    ['Frieren S3', 'Episode 12'],
-    ['Hades III', 'Coming Q4 2026'],
+  assert.deepEqual(list.map((e) => [e.title, e.detail, e.type]), [
+    ['Severance', 'S3 E1 · Return', 'show'],
+    ['Frieren S3', 'Episode 12', 'anime'],
+    ['Severance', 'S3 E2 · Next', 'show'],
+    ['Wind and Truth II', 'Audiobook out', 'book'],
+    ['Set By Hand', 'In cinemas', 'movie'],
+    ['Hades III', 'Coming Q4 2026', undefined],
   ]);
   const n = calls;
   await upcoming(c);

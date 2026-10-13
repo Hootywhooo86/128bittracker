@@ -86,6 +86,12 @@ even when the Tracker app is closed. Include as much as you know:
 
 - With `season_episodes`, the last episode finishes the season: a golden TV, or a golden idol with `anime`.
 - `movie.watched` takes `{ title, imdb?, year?, poster? }`.
+- **Sittings** go on the timeline with how long and how far: `watch.session`
+  `{ kind: "movie"|"episode", title | show + episode, imdb?, season?, number?, minutes, from_pct, to_pct, finished? }`,
+  `listen.session` `{ title, author?, minutes, from_pct, to_pct, finished? }`,
+  `read.session` `{ comic, chapter, chapters?, minutes }`. A finished sitting hides the matching
+  `*.watched` / `book.finished` line so a finish shows once. They don't change the library
+  (use `set_progress` for where you are).
 
 ## Sharing (anyone, no sign-in)
 

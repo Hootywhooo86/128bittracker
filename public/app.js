@@ -304,10 +304,10 @@ async function renderLibrary() {
       ${types.map(([k, v]) => `<button class="chip" data-type="${k}" aria-pressed="${state.libType === k}">${v.icon} ${k}</button>`).join('')}
     </div>
     <div class="chips" role="group" aria-label="Status">
-      <button class="chip" data-status="" aria-pressed="${!state.libStatus}">Any status</button>
-      ${META.statuses.map((s) => `<button class="chip" data-status="${s}" aria-pressed="${state.libStatus === s}">${STATUS_LABEL[s].toLowerCase()}</button>`).join('')}
+      <button class="chip" data-status="" aria-pressed="${!state.libStatus}">Everything</button>
+      ${STATUS_ORDER.map((s) => `<button class="chip" data-status="${s}" aria-pressed="${state.libStatus === s}">${STATUS_LABEL[s].toLowerCase()}</button>`).join('')}
     </div>
-    ${items.length ? `<div class="lib">${items.map(tile).join('')}</div>` : `<div class="empty"><span class="px">NOTHING HERE YET</span>Add a game, show or book — or connect 128bitplay from the Connect tab.</div>`}`;
+    ${items.length ? libSections(items) : `<div class="empty"><span class="px">NOTHING HERE YET</span>Add a game, show or book — or connect 128bitplay from the Connect tab.</div>`}`;
   $('#add-item').addEventListener('click', () => itemModal());
   $('#import-lib').addEventListener('click', importModal);
   $('#new-list').addEventListener('click', () => listModal());
@@ -317,6 +317,19 @@ async function renderLibrary() {
   view.querySelectorAll('[data-type]').forEach((b) => b.addEventListener('click', () => { state.libType = b.dataset.type; guard(renderLibrary)(); }));
   view.querySelectorAll('[data-status]').forEach((b) => b.addEventListener('click', () => { state.libStatus = b.dataset.status; guard(renderLibrary)(); }));
   view.querySelectorAll('[data-item]').forEach((b) => b.addEventListener('click', guard(async () => itemDetail(await api('GET', `/items/${b.dataset.item}`)))));
+}
+
+// In progress first, then what's next, then the rest; each its own section.
+const STATUS_ORDER = ['active', 'planned', 'on_hold', 'done', 'dropped'];
+const STATUS_HEAD = { active: '▶ IN PROGRESS', planned: '☰ PLANNED', on_hold: '⏸ ON HOLD', done: '✓ DONE', dropped: '✕ DROPPED' };
+function libSections(items) {
+  const by = Object.fromEntries(STATUS_ORDER.map((s) => [s, []]));
+  for (const i of items) (by[i.status] ?? by.planned).push(i);
+  // In progress: most recently touched first.
+  by.active.sort((a, b) => String(b.meta?.now?.at ?? b.updated_at).localeCompare(String(a.meta?.now?.at ?? a.updated_at)));
+  return STATUS_ORDER.filter((s) => by[s].length).map((s) => `<details class="lib-sec" ${s === 'dropped' ? '' : 'open'}>
+      <summary class="sec">${STATUS_HEAD[s]} <span class="muted">${by[s].length}</span></summary>
+      <div class="lib">${by[s].map(tile).join('')}</div></details>`).join('');
 }
 
 // ---------- lists ----------
@@ -583,7 +596,8 @@ async function renderTimeline() {
   if (state.tlSource) q.set('source', state.tlSource);
   const all = await api('GET', '/events?' + q);
   // Highlights hide per-tap logs and Tracker's mirror of events another app already sent.
-  const events = state.tlAll ? all : all.filter((e) => e.type !== 'habit.logged' && !(e.source === '128bittracker' && e.type.startsWith('item.') && e.data.source && e.data.source !== 'manual'));
+  const covered = finishedSittings(all);
+  const events = state.tlAll ? all : all.filter((e) => e.type !== 'habit.logged' && !(e.source === '128bittracker' && e.type.startsWith('item.') && e.data.source && e.data.source !== 'manual') && !covered.has(e.id));
   const groups = new Map();
   for (const e of events) {
     const d = new Date(e.occurred_at).toLocaleDateString('en-CA');
@@ -628,10 +642,30 @@ async function renderComingUp(el, refresh = false) {
   el.querySelectorAll('[data-item]').forEach((b) => b.addEventListener('click', guard(async () => itemDetail(await api('GET', `/items/${b.dataset.item}`)))));
 }
 
+// A finished watch/listen sitting already says "✓ finished": its separate
+// movie.watched / episode.watched / book.finished (and that day's chapter.read) are hidden.
+function finishedSittings(all) {
+  const k = (...p) => p.map((x) => String(x ?? '').toLowerCase()).join('|');
+  const day = (e) => new Date(e.occurred_at).toLocaleDateString('en-CA');
+  const keyOf = (e) => {
+    const d = e.data ?? {};
+    if (e.type === 'episode.watched' || (e.type === 'watch.session' && d.kind !== 'movie')) return k('ep', d.imdb ?? d.kitsu ?? d.show, d.season, d.number ?? d.episode);
+    if (e.type === 'movie.watched' || e.type === 'watch.session') return k('mv', d.imdb ?? d.title);
+    if (e.type === 'book.finished' || e.type === 'listen.session') return k('bk', d.title);
+    if (e.type === 'chapter.read' || e.type === 'read.session') return k('ch', d.comic, day(e));
+    return null;
+  };
+  const done = new Set(all.filter((e) => (e.type.endsWith('.session') && e.data?.finished) || e.type === 'read.session').map(keyOf));
+  return new Set(all.filter((e) => !e.type.endsWith('.session') && done.has(keyOf(e))).map((e) => e.id));
+}
+
 function tlItem(e) {
   const c = APP_COLORS[e.source] ?? '#9a97b8';
   const title = e.title ?? describe(e);
-  return `<div class="tl-item" style="--c:${c}"><div class="tl-title">${esc(title)}</div>
+  const d = e.data ?? {};
+  const from = Number(d.from_pct ?? d.to_pct), to = d.finished ? 100 : Number(d.to_pct);
+  const bar = e.type.endsWith('.session') && Number.isFinite(to) ? `<div class="tl-bar" title="${Number.isFinite(from) ? from : 0}% → ${to}%"><span style="left:${Math.min(from || 0, to)}%;width:${Math.max(1, to - Math.min(from || 0, to))}%"></span></div>` : '';
+  return `<div class="tl-item" style="--c:${c}"><div class="tl-title">${esc(title)}</div>${bar}
     <div class="tl-meta"><span class="app-tag" style="--c:${c}">${esc(e.source.replace('128bit', '').toUpperCase() || e.source)}</span>
       <span>${esc(e.type)}</span><span>${new Date(e.occurred_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span></div></div>`;
 }

@@ -270,3 +270,11 @@ details.advanced>summary{cursor:pointer;list-style:none}
 details.advanced>summary::-webkit-details-marker{display:none}
 details.advanced>summary::before{content:'▸ ';color:var(--muted)}
 details.advanced[open]>summary::before{content:'▾ '}
+
+.tl-bar{position:relative;height:4px;background:var(--panel-2);margin:6px 0 2px;max-width:320px}
+.tl-bar span{position:absolute;top:0;bottom:0;background:var(--c,var(--teal))}
+.lib-sec{margin-bottom:18px}
+.lib-sec>summary{cursor:pointer;list-style:none}
+.lib-sec>summary::-webkit-details-marker{display:none}
+.lib-sec>summary::before{content:'▸ ';color:var(--muted)}
+.lib-sec[open]>summary::before{content:'▾ '}

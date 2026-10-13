@@ -136,3 +136,22 @@ test('expired session refreshes; sign out forgets it', async () => {
   assert.equal(out.signed_in, false);
   assert.equal((await familySync(ctx)).error, 'not signed in');
 });
+
+test('pull: watch / listen / read sittings land on the timeline with time and how far', async () => {
+  const fam = fakeFamily();
+  const ctx = ctxFor(fam);
+  await familySignIn(ctx, { email: 'me@x.com', password: 'hunter22' });
+  const t0 = Date.now() - 60_000;
+  fam.add({ id: 's1', app: 'play', type: 'watch.session', at: t0, data: { kind: 'episode', show: 'Severance', episode: 'S2 E5 · Trojan', season: 2, number: 5, minutes: 23, from_pct: 12, to_pct: 37 } });
+  fam.add({ id: 's2', app: 'play', type: 'watch.session', at: t0 + 1, data: { kind: 'movie', title: 'Alien', minutes: 71, from_pct: 40, to_pct: 100, finished: 1 } });
+  fam.add({ id: 's3', app: 'play', type: 'listen.session', at: t0 + 2, data: { title: 'Dune', minutes: 95, from_pct: 20, to_pct: 31 } });
+  fam.add({ id: 's4', app: 'play', type: 'read.session', at: t0 + 3, data: { comic: 'Saga', chapter: 'Ch. 12', minutes: 15, chapters: 2 } });
+  await familySync(ctx);
+  const title = (id) => ctx.db.prepare('SELECT title FROM events WHERE id = ?').get(id).title;
+  assert.equal(title('s1'), '▶ Severance · S2 E5 · Trojan · 23 min · 12% → 37%');
+  assert.equal(title('s2'), '🎬 Alien · 1h 11m · ✓ finished');
+  assert.equal(title('s3'), '🎧 Dune · 1h 35m · 20% → 31%');
+  assert.equal(title('s4'), '💥 Saga · Ch. 12 · 15 min · 2 chapters read');
+  // Sittings are timeline only: nothing new in the library.
+  assert.equal(listItems(ctx, {}).length, 0);
+});

@@ -233,12 +233,19 @@ export function fromFamily(e) {
   };
 }
 
+const mins = (m) => (m >= 60 ? `${Math.floor(m / 60)}h ${Math.round(m % 60)}m` : `${Math.round(m)} min`);
+// " · 23 min · 12% → 37%" or " · 41 min · ✓ finished"
+const sitting = (d) => `${d.minutes ? ` · ${mins(d.minutes)}` : ''}${d.finished ? ' · ✓ finished' : d.to_pct != null ? ` · ${d.from_pct != null && d.from_pct !== d.to_pct ? `${d.from_pct}% → ` : ''}${d.to_pct}%` : ''}`;
+
 function titleFor(type, d) {
   switch (type) {
     case 'book.finished': return `📚 Finished ${d.title}${d.author ? ` by ${d.author}` : ''}`;
     case 'movie.watched': return `🎬 Watched ${d.title}`;
     case 'episode.watched': return `📺 ${d.show}${d.episode ? ` · ${d.episode}` : ''}`;
     case 'chapter.read': return `💥 Read ${d.comic}`;
+    case 'watch.session': return `${d.kind === 'movie' ? '🎬' : '▶'} ${d.kind === 'movie' ? d.title : `${d.show}${d.episode ? ` · ${d.episode}` : ''}`}${sitting(d)}`;
+    case 'listen.session': return `🎧 ${d.title}${sitting(d)}`;
+    case 'read.session': return `💥 ${d.comic}${d.chapter ? ` · ${d.chapter}` : ''}${d.minutes ? ` · ${mins(d.minutes)}` : ''}${d.chapters ? ` · ${d.chapters} chapter${d.chapters === 1 ? '' : 's'} read` : ''}`;
     case 'workout.logged': return `💪 ${d.name ?? 'Workout'}${d.minutes ? ` · ${d.minutes} min` : ''}`;
     case 'health.day': return `❤️ ${d.steps != null ? `${Number(d.steps).toLocaleString()} steps` : 'Health'}${d.sleepMinutes != null ? ` · ${Math.round(d.sleepMinutes / 6) / 10}h sleep` : ''}`;
     default: return d.title ?? d.name ?? d.text ?? null;

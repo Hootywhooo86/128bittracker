@@ -4,6 +4,7 @@
 //   shows   TMDB next_episode_to_air when a TMDB id + key exist, else TVmaze (no key)
 //   anime   AniList nextAiringEpisode (no key)
 //   games   Steam store release dates (no key), IGDB when keys are set
+//   movies  TMDB release dates for movies you plan to watch (by TMDB or IMDb id)
 //
 // Lookups are cached for a few hours; titles without ids are matched by name once.
 import { serviceConfig } from './services.js';
@@ -12,6 +13,8 @@ import { hubOn, routedFetch } from './hub.js';
 
 const TTL = 6 * 3600_000;
 const WATCHING = "status IN ('active','planned','on_hold')";
+
+const CACHE_VERSION = 2; // bump when entries gain fields
 
 const kvGet = (ctx, k) => {
   const v = ctx.db.prepare('SELECT value FROM kv WHERE key = ?').get(k)?.value;
@@ -22,10 +25,10 @@ const kvPut = (ctx, k, v) =>
 
 export async function upcoming(ctx, { refresh = false } = {}) {
   const cached = kvGet(ctx, 'cal.cache');
-  if (!refresh && cached && Date.now() - cached.at < TTL) return cached.entries;
+  if (!refresh && cached && cached.v === CACHE_VERSION && Date.now() - cached.at < TTL) return cached.entries;
   // Signed in to a 128bit account: TMDB and IGDB go through 128bit's keys.
   const fetch = routedFetch(ctx);
-  const items = ctx.db.prepare(`SELECT id, type, title, cover_url, meta FROM items WHERE type IN ('show','anime','game') AND ${WATCHING}`).all()
+  const items = ctx.db.prepare(`SELECT id, type, title, year, cover_url, meta FROM items WHERE type IN ('show','anime','game','movie') AND ${WATCHING}`).all()
     .map((i) => ({ ...i, meta: JSON.parse(i.meta) }));
 
   const entries = [];
@@ -33,12 +36,13 @@ export async function upcoming(ctx, { refresh = false } = {}) {
   await safe(() => shows(ctx, fetch, items.filter((i) => i.type === 'show'), entries));
   await safe(() => anime(fetch, items.filter((i) => i.type === 'anime'), entries));
   await safe(() => games(ctx, fetch, items.filter((i) => i.type === 'game'), entries));
+  await safe(() => movies(ctx, fetch, items.filter((i) => i.type === 'movie'), entries));
 
   const today = new Date().toISOString().slice(0, 10);
   const result = entries
     .filter((e) => !e.date || e.date >= today)
     .sort((a, b) => (a.date ?? '9999').localeCompare(b.date ?? '9999'));
-  kvPut(ctx, 'cal.cache', { at: Date.now(), entries: result });
+  kvPut(ctx, 'cal.cache', { v: CACHE_VERSION, at: Date.now(), entries: result });
   return result;
 }
 
@@ -69,7 +73,7 @@ async function shows(ctx, fetch, list, out) {
         headers: v4 ? { Authorization: `Bearer ${tmdb}` } : {},
       });
       const n = s.next_episode_to_air;
-      if (n) out.push({ kind: 'episode', date: n.air_date, title: item.title, detail: `S${n.season_number} E${n.episode_number}${n.name ? ` · ${n.name}` : ''}`, item_id: item.id, cover_url: item.cover_url });
+      if (n) out.push({ kind: 'episode', date: n.air_date, title: item.title, detail: `S${n.season_number} E${n.episode_number}${n.name ? ` · ${n.name}` : ''}`, season: n.season_number, number: n.episode_number, type: 'show', item_id: item.id, cover_url: item.cover_url });
       continue;
     }
     let id = item.meta.tvmaze_id ?? ids.get(item.title);
@@ -81,7 +85,7 @@ async function shows(ctx, fetch, list, out) {
     if (!id) continue;
     const s = await json(fetch, `https://api.tvmaze.com/shows/${id}?embed=nextepisode`);
     const n = s._embedded?.nextepisode;
-    if (n) out.push({ kind: 'episode', date: n.airdate || null, title: item.title, detail: `S${n.season} E${n.number}${n.name ? ` · ${n.name}` : ''}`, item_id: item.id, cover_url: item.cover_url });
+    if (n) out.push({ kind: 'episode', date: n.airdate || null, title: item.title, detail: `S${n.season} E${n.number}${n.name ? ` · ${n.name}` : ''}`, season: n.season, number: n.number, type: 'show', item_id: item.id, cover_url: item.cover_url });
   }
 }
 
@@ -107,7 +111,7 @@ async function anime(fetch, list, out) {
     let m = item.meta.anilist_id ? found.get(item.meta.anilist_id) : null;
     if (!item.meta.anilist_id) m = (await post({ ids: [], search: item.title }).catch(() => null))?.data?.byName ?? null;
     const n = m?.nextAiringEpisode;
-    if (n) out.push({ kind: 'episode', date: new Date(n.airingAt * 1000).toISOString().slice(0, 10), title: item.title, detail: `Episode ${n.episode}`, item_id: item.id, cover_url: item.cover_url });
+    if (n) out.push({ kind: 'episode', date: new Date(n.airingAt * 1000).toISOString().slice(0, 10), title: item.title, detail: `Episode ${n.episode}`, number: n.episode, type: 'anime', item_id: item.id, cover_url: item.cover_url });
   }
 }
 
@@ -136,5 +140,23 @@ async function games(ctx, fetch, list, out) {
       item_id: item.id,
       cover_url: item.cover_url,
     });
+  }
+}
+
+// Movies on your list that aren't out yet: TMDB release dates (by TMDB id, else IMDb id).
+async function movies(ctx, fetch, list, out) {
+  const tmdb = serviceConfig(ctx, 'tmdb').token || (hubOn(ctx) ? '' : null);
+  if (tmdb == null) return;
+  const v4 = tmdb.length > 40;
+  const get = (path) => json(fetch, `https://api.themoviedb.org/3${path}${v4 || !tmdb ? '' : `${path.includes('?') ? '&' : '?'}api_key=${tmdb}`}`, { headers: v4 ? { Authorization: `Bearer ${tmdb}` } : {} });
+  const thisYear = new Date().getFullYear();
+  // Only ones that could still be coming: no year yet, or this year or later.
+  for (const item of list.filter((i) => !i.year || i.year >= thisYear).slice(0, 40)) {
+    let m = null;
+    if (item.meta.tmdb_id) m = await get(`/movie/${item.meta.tmdb_id}`);
+    else if (item.meta.imdb_id) m = (await get(`/find/${item.meta.imdb_id}?external_source=imdb_id`)).movie_results?.[0] ?? null;
+    if (m?.release_date && m.release_date >= new Date().toISOString().slice(0, 10)) {
+      out.push({ kind: 'release', date: m.release_date, title: item.title, detail: 'In cinemas', type: 'movie', item_id: item.id, cover_url: item.cover_url });
+    }
   }
 }

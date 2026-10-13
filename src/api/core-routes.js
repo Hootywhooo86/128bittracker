@@ -113,7 +113,7 @@ export function addCoreRoutes(r, ctx) {
   r.post('/api/v1/family/oauth/start', 'write', ({ body }) => family.familyOAuthStart(ctx, body ?? {}));
   r.post('/api/v1/family/oauth/finish', 'write', ({ body }) => family.familyOAuthFinish(ctx, body ?? {}));
   r.post('/api/v1/family/profile', 'write', ({ body }) => family.familyProfile(ctx, body ?? {}));
-  r.get('/api/v1/upnext', 'read', () => library.upNext(ctx));
+  r.get('/api/v1/upnext', 'read', ({ query }) => library.upNext(ctx, { limit: Math.min(Math.max(Number(query.limit) || 30, 1), 200) }));
   r.get('/api/v1/connect', 'read', () => hub.hubStatus(ctx));
   r.post('/api/v1/connect/start', 'write', ({ body }) => hub.connectStart(ctx, body ?? {}));
   r.post('/api/v1/connect/disconnect', 'write', ({ body }) => hub.connectRemove(ctx, body ?? {}));

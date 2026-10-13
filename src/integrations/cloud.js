@@ -38,7 +38,7 @@ const newUid = (prefix) => `${prefix}-${(globalThis.crypto?.randomUUID?.() ?? `$
 /** Ids other apps know a title by, from the item's meta. */
 const ID_KEYS = {
   tmdb_id: 'tmdb', imdb_id: 'imdb', tvdb_id: 'tvdb', tvmaze_id: 'tvmaze', anilist_id: 'anilist', mal_id: 'mal',
-  kitsu_id: 'kitsu', igdb_id: 'igdb', steam_appid: 'steam', trakt_id: 'trakt', hardcover_id: 'hardcover', goodreads_id: 'goodreads',
+  kitsu_id: 'kitsu', play_id: 'play', igdb_id: 'igdb', steam_appid: 'steam', trakt_id: 'trakt', hardcover_id: 'hardcover', goodreads_id: 'goodreads',
 };
 
 export function idsOf(meta = {}) {

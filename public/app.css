@@ -278,3 +278,8 @@ details.advanced[open]>summary::before{content:'▾ '}
 .lib-sec>summary::-webkit-details-marker{display:none}
 .lib-sec>summary::before{content:'▸ ';color:var(--muted)}
 .lib-sec[open]>summary::before{content:'▾ '}
+
+h3.sub{font-family:var(--px,inherit);font-size:11px;letter-spacing:.08em;color:var(--muted);margin:14px 0 8px}
+.up-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:auto}
+button.up-cover{border:0;padding:0;cursor:pointer;color:inherit}
+a.btn{text-decoration:none;display:inline-block}

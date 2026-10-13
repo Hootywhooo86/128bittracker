@@ -132,25 +132,127 @@ function showLogin() {
 }
 
 // ---------- TODAY ----------
+// ---------- watching / reading (Today) ----------
+// Posters: the item's own, else the IMDb poster 128bitPlay uses.
+const coverSrc = (i) => i.cover_url || (i.meta?.imdb_id ? `https://images.metahub.space/poster/medium/${i.meta.imdb_id}/img` : null);
+const coverHtml = (i) => (coverSrc(i) ? `<img src="${esc(coverSrc(i))}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span aria-hidden="true">${esc(i.icon ?? '📦')}</span>`);
+const VIDEO = new Set(['show', 'anime', 'movie']);
+const READING = new Set(['book', 'comic', 'manga']);
+const showKey = (i) => i.meta?.imdb_id ?? i.meta?.kitsu_id ?? i.title.toLowerCase().replace(/[:\s-]*(season|s)\s*\d+$/i, '').trim();
+
+/** Opens the title in 128bitPlay (bit128://open, handled by Play's app/open.tsx). */
+function playLink(i, ep) {
+  const m = i.meta ?? {};
+  const p = new URLSearchParams({ title: i.title });
+  const id = m.imdb_id ?? (m.kitsu_id ? `kitsu:${m.kitsu_id}` : null);
+  if (id) p.set('id', id);
+  if (i.cover_url) p.set('poster', i.cover_url);
+  if (i.type === 'movie') p.set('kind', 'movie');
+  else if (i.type === 'show' || i.type === 'anime') {
+    p.set('kind', ep ? 'episode' : 'show');
+    if (ep) { p.set('season', ep.season ?? 1); p.set('episode', ep.number); }
+  } else if (i.type === 'book') p.set('kind', 'book');
+  else p.set('kind', 'comic');
+  if (m.play_id) p.set('key', m.play_id);
+  return `bit128://open?${p}`;
+}
+const playBtn = (i, ep, label = '▶ PLAY') => `<a class="btn teal small" href="${esc(playLink(i, ep))}">${label}</a>`;
+
+function mediaCard(i, sub, actions = '', pct = null) {
+  return `<div class="up-card">
+    <button class="up-cover" data-item="${i.id}" aria-label="${esc(i.title)}">${coverHtml(i)}</button>
+    <div class="up-body"><b>${esc(i.title)}</b><span class="muted">${sub}</span>
+      ${pct != null ? `<div class="mini-bar" style="width:100%;margin:2px 0"><span style="width:${pct}%"></span></div>` : ''}
+      <div class="up-actions">${actions}</div></div></div>`;
+}
+const rail = (title, cards) => (cards.length ? `<h3 class="sub">${title}</h3><div class="upnext">${cards.join('')}</div>` : '');
+const whenLabel = (d) => {
+  if (!d) return 'date TBA';
+  const days = Math.round((new Date(d + 'T12:00') - new Date(todayStr() + 'T12:00')) / 86400000);
+  const date = new Date(d + 'T12:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+  return days === 0 ? `today · ${date}` : days === 1 ? `tomorrow · ${date}` : `in ${days} days · ${date}`;
+};
+
+async function renderMedia(el, cal = null) {
+  const [active, planned, upnext] = await Promise.all([
+    api('GET', '/items?status=active&limit=500'),
+    api('GET', '/items?status=planned&limit=500'),
+    api('GET', '/upnext?limit=100').catch(() => []),
+  ]);
+  if (!el.isConnected) return;
+  const today = todayStr();
+  const recent = (a, b) => String(b.meta?.now?.at ?? b.updated_at).localeCompare(String(a.meta?.now?.at ?? a.updated_at));
+  const calFor = (i) => (cal ?? []).find((c) => c.kind === 'episode' && (c.item_id === i.id || c.title.toLowerCase() === i.title.toLowerCase()));
+
+  // TV & anime: one card per show (its latest season).
+  const byShow = new Map();
+  for (const u of upnext) {
+    const k = showKey(u);
+    const prev = byShow.get(k);
+    if (!prev || (u.meta?.season ?? 1) > (prev.meta?.season ?? 1) || ((u.meta?.season ?? 1) === (prev.meta?.season ?? 1) && recent(prev, u) < 0)) byShow.set(k, u);
+  }
+  const shows = [...byShow.values()].sort(recent);
+  const midway = (u) => u.meta?.now?.episode === u.next.number && u.meta.now.pct > 0 && u.meta.now.pct < 95;
+  const notOut = (u) => {
+    const c = calFor(u);
+    return c && c.date && c.date > today && c.number != null && c.number <= u.next.number && (c.season == null || c.season === u.next.season);
+  };
+  const epLabel = (u) => `S${esc(u.next.season)} E${esc(u.next.number)}${u.progress_total ? ` of ${esc(u.progress_total)}` : ''}`;
+  const tvContinue = shows.filter(midway).map((u) => mediaCard(u, `${epLabel(u)} · ${Math.round(u.meta.now.pct)}% in`, playBtn(u, u.next, '▶ RESUME'), Math.round(u.meta.now.pct)));
+  const tvNext = shows.filter((u) => !midway(u) && !notOut(u)).map((u) => mediaCard(u, epLabel(u),
+    `${playBtn(u, u.next)}<button class="btn small ghost" data-watched="${u.id}" data-next="${u.next.number}">✓ WATCHED</button>`));
+  const tvSoon = (cal ?? []).filter((c) => c.kind === 'episode').map((c) => {
+    const i = [...active, ...planned].find((x) => x.id === c.item_id) ?? { id: c.item_id, title: c.title, cover_url: c.cover_url, icon: c.type === 'anime' ? '🌸' : '📺', meta: {} };
+    return mediaCard(i, `${esc(c.detail ?? '')}<br>${esc(whenLabel(c.date))}`);
+  });
+
+  // Movies.
+  const movieSoon = new Map((cal ?? []).filter((c) => c.type === 'movie').map((c) => [c.item_id, c]));
+  const mvContinue = active.filter((i) => i.type === 'movie').sort(recent).map((i) => {
+    const { pct, label } = progressOf(i);
+    return mediaCard(i, esc(label || 'Watching'), playBtn(i, null, '▶ RESUME'), pct);
+  });
+  const mvList = planned.filter((i) => i.type === 'movie' && !movieSoon.has(i.id)).map((i) => mediaCard(i, esc([i.year, i.creator].filter(Boolean).join(' · ') || 'On your list'), playBtn(i)));
+  const mvSoon = [...movieSoon.values()].map((c) => {
+    const i = planned.find((x) => x.id === c.item_id) ?? active.find((x) => x.id === c.item_id) ?? { id: c.item_id, title: c.title, cover_url: c.cover_url, icon: '🎬', meta: {} };
+    return mediaCard(i, esc(`${c.detail} ${whenLabel(c.date)}`));
+  });
+
+  // Reading & listening.
+  const rdNow = active.filter((i) => READING.has(i.type)).sort(recent).map((i) => {
+    const { pct, label } = progressOf(i);
+    const audio = i.meta?.format === 'audiobook';
+    const left = i.progress_total && i.progress_total > i.progress ? ` · ${fmtNum(i.progress_total - i.progress)} to go` : '';
+    return mediaCard(i, `${audio ? '🎧 ' : ''}${esc(label || 'Reading')}${esc(left)}`, playBtn(i, null, audio ? '▶ LISTEN' : '▶ READ'), pct);
+  });
+  const rdNext = planned.filter((i) => READING.has(i.type)).map((i) => mediaCard(i, esc([i.creator, i.year].filter(Boolean).join(' · ') || 'Up next'), playBtn(i, null, i.meta?.format === 'audiobook' ? '▶ LISTEN' : '▶ READ')));
+
+  const tv = rail('▶ CONTINUE WATCHING', tvContinue) + rail('NEXT EPISODE', tvNext) + rail('📅 UPCOMING EPISODES', tvSoon);
+  const mv = rail('▶ CONTINUE WATCHING', mvContinue) + rail('WATCHLIST', mvList) + rail('📅 COMING SOON', mvSoon);
+  const rd = rail('▶ READING &amp; LISTENING NOW', rdNow) + rail('UP NEXT TO READ', rdNext);
+  el.innerHTML = `${tv ? `<h2 class="sec">📺 TV &amp; ANIME</h2>${tv}` : ''}${mv ? `<h2 class="sec">🎬 MOVIES</h2>${mv}` : ''}${rd ? `<h2 class="sec">📚 BOOKS, AUDIOBOOKS &amp; COMICS</h2>${rd}` : ''}`;
+  el.querySelectorAll('[data-watched]').forEach((b) => b.addEventListener('click', guard(async () => {
+    b.disabled = true;
+    await api('POST', `/items/${b.dataset.watched}/sessions`, { progress: Number(b.dataset.next) });
+    toast('✓ WATCHED');
+    await renderMedia(el, cal);
+  })));
+  el.querySelectorAll('[data-item]').forEach((b) => b.addEventListener('click', guard(async () => itemDetail(await api('GET', `/items/${b.dataset.item}`)))));
+  // Air dates arrive after the first paint (they may need a lookup).
+  if (!cal) api('GET', '/calendar').then((c) => el.isConnected && renderMedia(el, c)).catch(() => {});
+}
+
 async function renderToday() {
-  const [trackers, upnext] = await Promise.all([api('GET', '/trackers'), api('GET', '/upnext').catch(() => [])]);
+  const trackers = await api('GET', '/trackers');
   const done = trackers.filter((t) => t.today.done).length;
   view.innerHTML = `
     <h1 class="view-title"><span class="t">TODAY</span> <span class="muted" style="font-size:.6em">${esc(new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' }))}</span></h1>
     <p class="view-sub">${trackers.length ? `${done}/${trackers.length} done. Two taps and it's on the record.` : 'Nothing tracked yet. Start with one habit.'}</p>
     <div class="row" style="margin-bottom:18px"><button class="btn" id="new-tracker">+ NEW TRACKER</button></div>
     ${trackers.length ? `<div class="cards">${trackers.map(trackerCard).join('')}</div>` : `<div class="empty"><span class="px">NO TRACKERS YET</span>Pick a preset — water, sleep, reading, mood — or make your own.</div>`}
-    ${upnext.length ? `<h2 class="sec">UP NEXT</h2><div class="upnext">${upnext.slice(0, 12).map((u) => `<div class="up-card">
-        <div class="up-cover">${u.cover_url ? `<img src="${esc(u.cover_url)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span aria-hidden="true">${esc(u.icon)}</span>`}</div>
-        <div class="up-body"><b>${esc(u.title)}</b><span class="muted">S${esc(u.next.season)} E${esc(u.next.number)}${u.progress_total ? ` of ${esc(u.progress_total)}` : ''}${u.meta?.now?.episode === u.next.number && u.meta.now.pct ? ` · ${Math.round(u.meta.now.pct)}% in` : ''}</span>
-          <button class="btn teal small" data-watched="${u.id}" data-next="${u.next.number}">✓ WATCHED</button></div></div>`).join('')}</div>` : ''}`;
+    <div id="media"></div>`;
   $('#new-tracker').addEventListener('click', newTrackerModal);
-  view.querySelectorAll('[data-watched]').forEach((b) => b.addEventListener('click', guard(async () => {
-    b.disabled = true;
-    await api('POST', `/items/${b.dataset.watched}/sessions`, { progress: Number(b.dataset.next) });
-    toast('✓ WATCHED');
-    await renderToday();
-  })));
+  renderMedia($('#media')).catch(() => {});
   view.querySelectorAll('[data-log]').forEach((b) => b.addEventListener('click', guard(async () => {
     const id = b.dataset.log;
     const value = b.dataset.value === undefined ? undefined : Number(b.dataset.value);
@@ -442,7 +544,7 @@ function progressOf(i) {
 function tile(i) {
   const { pct, label } = progressOf(i);
   return `<button class="tile" data-item="${i.id}">
-    <div class="cover">${i.cover_url ? `<img src="${esc(i.cover_url)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span aria-hidden="true">${esc(i.icon)}</span>`}
+    <div class="cover">${coverHtml(i)}
       <span class="status ${i.status}">${STATUS_LABEL[i.status]}</span>${i.trophy_kind ? `<span class="trophy-badge" title="${TROPHY_NAMES[i.trophy_kind]}">${trophySvg(i.trophy_kind, 30)}</span>` : ''}${i.source !== 'manual' ? `<span class="src">${esc(i.source.replace('128bit', ''))}</span>` : ''}</div>
     <div class="tile-body"><div class="tile-title">${esc(i.title)}</div>
       <div class="tile-sub">${esc(i.icon)} ${esc(i.type)}${i.meta?.season ? ' · S' + esc(i.meta.season) : ''}${i.creator ? ' · ' + esc(i.creator) : ''}${i.year ? ' · ' + i.year : ''}</div>

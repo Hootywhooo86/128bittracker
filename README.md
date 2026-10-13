@@ -46,6 +46,13 @@ running fully offline on the device, and it syncs with a Tracker server so
 [Releases](https://github.com/Hootywhooo86/128bittracker/releases). Bumping
 `"version"` in `mobile/package.json` publishes a new release automatically.
 
+**Health Connect (v0.7):** Sync tab → *Connect Health Connect*. Tracker reads
+(never writes) workouts, steps, active calories and distance from any app that
+writes to Health Connect (Samsung Health, Fitbit, Google Fit, Strava…). Workouts
+log the Workout tracker and land on the timeline; steps fill the Steps tracker
+to the day's total. It re-reads the last 7 days on open and every 30 minutes.
+Needs Android 8+. Sleep and mindfulness aren't available through the plugin yet.
+
 ## Run the server
 
 To put it online for 128bitplay and phone sync, see

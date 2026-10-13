@@ -1061,6 +1061,42 @@ function bindImport(after) {
   }));
 }
 
+// Health Connect (Android): workouts, steps, calories and distance from any fitness app.
+async function renderHealth(el) {
+  const h = await api('GET', '/health');
+  el.innerHTML = h.enabled
+    ? `<p class="muted" style="font-size:13px;line-height:1.6;margin-bottom:10px">✓ Connected. Workouts log your Workout tracker and steps fill your Steps tracker, from any app that writes to Health Connect (Samsung Health, Fitbit, Google Fit, Strava…). ${h.workouts} workouts so far · last read ${h.last_sync_at ? new Date(h.last_sync_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'never'}.</p>
+      <div class="row"><button class="btn teal" id="hc-pull">⟳ READ NOW</button><button class="btn ghost" id="hc-settings">PERMISSIONS</button><button class="btn ghost" id="hc-off">TURN OFF</button></div>`
+    : `<p class="muted" style="font-size:13px;line-height:1.6;margin-bottom:10px">Bring in workouts, steps, calories and distance from any app that writes to Health Connect (Samsung Health, Fitbit, Google Fit, Strava…). Read-only: Tracker never changes your health data.</p>
+      <div class="row"><button class="btn teal" id="hc-connect">♥ CONNECT HEALTH CONNECT</button></div>`;
+  const again = () => renderHealth(el);
+  $('#hc-connect', el)?.addEventListener('click', guard(async () => {
+    $('#hc-connect', el).disabled = true;
+    try {
+      const r = await api('POST', '/health/connect', {});
+      if (!r.ok) return toast(r.reason ?? 'NOT CONNECTED', true);
+      // Steps and workouts need somewhere to land.
+      const mine = await api('GET', '/trackers');
+      if (!mine.some((t) => t.unit === 'steps')) await api('POST', '/trackers', { preset: 'steps' });
+      if (!mine.some((t) => (t.listens ?? []).includes('workout.logged'))) await api('POST', '/trackers', { preset: 'workout' });
+      toast(`HEALTH CONNECTED · ${r.workouts_added} WORKOUTS`);
+    } finally {
+      await again();
+    }
+  }));
+  $('#hc-pull', el)?.addEventListener('click', guard(async () => {
+    $('#hc-pull', el).disabled = true;
+    const r = await api('POST', '/health/pull', {});
+    toast(`READ · ${r.workouts_added} NEW WORKOUTS${r.today?.steps != null ? ` · ${Math.round(r.today.steps).toLocaleString()} STEPS TODAY` : ''}`);
+    await again();
+  }));
+  $('#hc-settings', el)?.addEventListener('click', guard(() => api('POST', '/health/settings', {})));
+  $('#hc-off', el)?.addEventListener('click', guard(async () => {
+    await api('PUT', '/health', { enabled: false });
+    await again();
+  }));
+}
+
 // ---------- SYNC (Android) ----------
 async function renderSync() {
   const s = await api('GET', '/sync/settings');
@@ -1071,6 +1107,8 @@ async function renderSync() {
     <h2 class="sec">YOUR 128BIT ACCOUNT</h2>
     <div id="family"></div>
     ${ONE_ACCOUNT}
+    <h2 class="sec">HEALTH CONNECT</h2>
+    <div id="health"></div>
     <h2 class="sec">GAME PLATFORMS (OPTIONAL)</h2>
     <p class="muted" style="font-size:13px;line-height:1.6;margin-bottom:10px">Pull in play time and 100% achievements: just your profile name, no keys.</p>
     <div id="platforms"></div>
@@ -1108,6 +1146,7 @@ async function renderSync() {
     <div class="row"><button class="btn ghost" id="export">⬇ EXPORT JSON</button>${importButton()}</div>`;
   bindImport(renderSync);
   await renderFamily($('#family'));
+  await renderHealth($('#health'));
   await renderPlatforms($('#platforms'), 'games');
   await renderPlatforms($('#media-accounts'), 'media');
   await renderServices($('#services'));

@@ -1,6 +1,6 @@
 {
   "name": "128bittracker-mobile",
-  "version": "0.6.3",
+  "version": "0.7.0",
   "private": true,
   "description": "128bit Tracker for Android (Capacitor). Runs the same Tracker core on-device with SQLite (sql.js).",
   "type": "module",
@@ -20,6 +20,7 @@
     "@capacitor/filesystem": "^7.1.9",
     "@capacitor/local-notifications": "^7.0.7",
     "@capacitor/share": "^7.0.4",
+    "capacitor-health": "^7.1.0",
     "sql.js": "^1.14.2"
   },
   "devDependencies": {

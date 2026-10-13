@@ -14,6 +14,7 @@ import { importFile } from '../integrations/imports.js';
 import * as family from '../integrations/family-account.js';
 import { upcoming } from '../integrations/calendar.js';
 import * as hub from '../integrations/hub.js';
+import * as health from '../integrations/health.js';
 
 export const API_VERSION = '1';
 
@@ -82,6 +83,11 @@ export function addCoreRoutes(r, ctx) {
 
   // --- timeline (read) ------------------------------------------------------------
   r.get('/api/v1/events', 'read', ({ query }) => listEvents(db, query));
+
+  // --- Health Connect (the Android app reads it, any client may post) ---------------
+  r.get('/api/v1/health', 'read', () => health.healthStatus(ctx));
+  r.put('/api/v1/health', 'write', ({ body }) => health.setHealthEnabled(ctx, body?.enabled));
+  r.post('/api/v1/health/sync', 'write', ({ body }) => health.applyHealth(ctx, body ?? {}));
 
   // --- stats + export -------------------------------------------------------------
   r.get('/api/v1/stats', 'read', () => stats.overview(ctx));

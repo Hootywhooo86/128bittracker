@@ -37,7 +37,7 @@ a{color:var(--teal)}
 h1.view-title{font-family:var(--px);font-size:clamp(15px,3.2vw,20px);line-height:1.5;margin:22px 0 6px;text-shadow:3px 3px 0 #1a1a33}
 h1.view-title .o{color:var(--orange)} h1.view-title .t{color:var(--teal)}
 .view-sub{color:var(--muted);font-size:14px;margin-bottom:22px}
-h2.sec{font-family:var(--px);font-size:11px;color:var(--orange);margin:30px 0 14px;letter-spacing:1px}
+h2.sec,summary.sec{font-family:var(--px);font-size:11px;color:var(--orange);margin:30px 0 14px;letter-spacing:1px}
 
 /* ---------- buttons ---------- */
 .btn{font-family:var(--px);font-size:10px;letter-spacing:.5px;border:3px solid var(--orange);background:var(--orange);color:#201100;
@@ -261,3 +261,10 @@ table.lib-stats .n{text-align:right;font-variant-numeric:tabular-nums}
 .al-row{cursor:pointer}
 .al-row input{width:20px;height:20px;flex:none}
 .list-items .list-row,.al-row{flex-wrap:nowrap}
+
+/* Optional / advanced sections fold away */
+details.advanced{margin-top:22px}
+details.advanced>summary{cursor:pointer;list-style:none}
+details.advanced>summary::-webkit-details-marker{display:none}
+details.advanced>summary::before{content:'▸ ';color:var(--muted)}
+details.advanced[open]>summary::before{content:'▾ '}

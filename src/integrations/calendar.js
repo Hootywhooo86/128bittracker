@@ -8,6 +8,7 @@
 // Lookups are cached for a few hours; titles without ids are matched by name once.
 import { serviceConfig } from './services.js';
 import { igdbQuery } from './metadata.js';
+import { hubOn, routedFetch } from './hub.js';
 
 const TTL = 6 * 3600_000;
 const WATCHING = "status IN ('active','planned','on_hold')";
@@ -22,7 +23,8 @@ const kvPut = (ctx, k, v) =>
 export async function upcoming(ctx, { refresh = false } = {}) {
   const cached = kvGet(ctx, 'cal.cache');
   if (!refresh && cached && Date.now() - cached.at < TTL) return cached.entries;
-  const fetch = ctx.fetch ?? globalThis.fetch;
+  // Signed in to a 128bit account: TMDB and IGDB go through 128bit's keys.
+  const fetch = routedFetch(ctx);
   const items = ctx.db.prepare(`SELECT id, type, title, cover_url, meta FROM items WHERE type IN ('show','anime','game') AND ${WATCHING}`).all()
     .map((i) => ({ ...i, meta: JSON.parse(i.meta) }));
 
@@ -53,14 +55,15 @@ function idMap(ctx, name) {
 }
 
 async function shows(ctx, fetch, list, out) {
-  const tmdb = serviceConfig(ctx, 'tmdb').token;
+  // '' = no key of our own: 128bit Connect adds its own.
+  const tmdb = serviceConfig(ctx, 'tmdb').token || (hubOn(ctx) ? '' : null);
   const ids = idMap(ctx, 'tvmaze');
   const seen = new Set();
   for (const item of list) {
     const key = item.title.toLowerCase();
     if (seen.has(key)) continue; // several seasons of one show: one entry
     seen.add(key);
-    if (tmdb && item.meta.tmdb_id) {
+    if (tmdb != null && item.meta.tmdb_id) {
       const v4 = tmdb.length > 40;
       const s = await json(fetch, `https://api.themoviedb.org/3/tv/${item.meta.tmdb_id}${v4 ? '' : `?api_key=${tmdb}`}`, {
         headers: v4 ? { Authorization: `Bearer ${tmdb}` } : {},
@@ -112,7 +115,7 @@ async function games(ctx, fetch, list, out) {
   const igdb = serviceConfig(ctx, 'igdb');
   const planned = list.filter((i) => i.meta.steam_appid || i.meta.igdb_id || i.meta.provider === 'steam');
   for (const item of planned) {
-    if (item.meta.igdb_id && igdb.client_id && igdb.client_secret) {
+    if (item.meta.igdb_id && ((igdb.client_id && igdb.client_secret) || hubOn(ctx))) {
       const [g] = await igdbQuery(ctx, fetch, igdb, 'games', `fields first_release_date,status; where id = ${Number(item.meta.igdb_id)};`);
       if (g?.first_release_date) {
         out.push({ kind: 'release', date: new Date(g.first_release_date * 1000).toISOString().slice(0, 10), title: item.title, detail: 'Release day', item_id: item.id, cover_url: item.cover_url });

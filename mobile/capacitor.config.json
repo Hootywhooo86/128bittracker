@@ -1,0 +1,19 @@
+{
+  "appId": "app.bit128.tracker",
+  "appName": "128bit Tracker",
+  "webDir": "www",
+  "backgroundColor": "#0b0b16",
+  "android": {
+    "allowMixedContent": false,
+    "adjustMarginsForEdgeToEdge": "auto"
+  },
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    },
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_tracker",
+      "iconColor": "#FF9F1C"
+    }
+  }
+}

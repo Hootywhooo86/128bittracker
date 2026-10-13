@@ -12,6 +12,8 @@ import { familyAdopt } from '../../src/integrations/family-account.js';
 import { createSync } from './sync.js';
 import { createReminders } from './reminders.js';
 import { createUpdates } from './updates.js';
+import { connectHealth, pullHealth, openHealthSettings } from './health.js';
+import { setHealthEnabled } from '../../src/integrations/health.js';
 
 export const platform = 'android';
 
@@ -83,6 +85,15 @@ function boot() {
       setTimeout(() => location.reload(), 50);
       return [202, { switching: true }];
     });
+    // Health Connect: ask once, then read workouts + daily steps.
+    r.post('/api/v1/health/connect', null, async () => {
+      const res = await connectHealth();
+      if (!res.ok) return res;
+      setHealthEnabled(ctx, true);
+      return { ok: true, ...(await pullHealth(request, { days: 30 })) };
+    });
+    r.post('/api/v1/health/pull', null, () => pullHealth(request, { days: 7 }));
+    r.post('/api/v1/health/settings', null, async () => (await openHealthSettings(), [204]));
     r.post('/api/v1/app/open-update', null, async ({ body }) => (await updates.open(body?.url), [204]));
     r.post('/api/v1/share-file', null, async ({ body }) => {
       const name = String(body?.name ?? 'export.json').replace(/[^\w.-]+/g, '_');

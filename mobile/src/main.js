@@ -62,6 +62,9 @@ device().then(({ store, sync, reminders, updates }) => {
   setInterval(familyTick, 5 * 60_000);
   App.addListener('resume', familyTick);
   App.addListener('resume', autoSyncPlatforms);
+  healthTick();
+  setInterval(healthTick, 30 * 60_000);
+  App.addListener('resume', healthTick);
   sync.startAuto({
     onSynced: () => {
       reminders.refresh();
@@ -89,4 +92,17 @@ async function familyTick() {
   const { request } = await import('./transport.js');
   const { data } = await request('POST', '/family/sync', {});
   if (data?.pulled) window.dispatchEvent(new CustomEvent('tracker:synced'));
+}
+
+// Health Connect: new workouts and today's steps, on open and every 30 minutes.
+async function healthTick() {
+  const { request } = await import('./transport.js');
+  const { data } = await request('GET', '/health');
+  if (!data?.enabled) return;
+  try {
+    const { status, data: res } = await request('POST', '/health/pull', {});
+    if (status === 200 && (res.workouts_added || res.days)) window.dispatchEvent(new CustomEvent('tracker:synced'));
+  } catch (err) {
+    console.warn('health:', err.message);
+  }
 }

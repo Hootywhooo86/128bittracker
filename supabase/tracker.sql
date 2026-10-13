@@ -425,7 +425,7 @@ begin
     it := null;
     if r ->> 'season' is not null then
       select * into it from tracker_items t
-       where t.user_id = me and not t.deleted and t.season = (r ->> 'season')::int and t.type = coalesce(r ->> 'type', 'show')
+       where t.user_id = me and not t.deleted and t.season = (r ->> 'season')::int and (t.type = coalesce(r ->> 'type', 'show') or (t.type in ('show', 'anime') and coalesce(r ->> 'type', 'show') in ('show', 'anime')))
          and ((r -> 'ids' ? 'imdb' and t.ids ->> 'imdb' = r -> 'ids' ->> 'imdb') or lower(t.title) = lower(r ->> 'title'))
        limit 1;
     else
@@ -468,6 +468,42 @@ begin
   end loop;
   return jsonb_build_object('added', added, 'updated', changed);
 end $$;
+
+-- Where you are right now in one title, live from a player (when you pause or leave, and
+-- every few minutes). Same rules as track_items: forward only, meta.pct / meta.now replaced.
+create or replace function public.set_progress(item jsonb) returns jsonb
+language plpgsql security definer set search_path = public as $$
+begin
+  if jsonb_typeof(item) is distinct from 'object' then raise exception 'item must be an object'; end if;
+  return public.track_items(jsonb_build_array(item));
+end $$;
+
+-- A timestamp or number from app data, or null when it isn't one.
+create or replace function public.tracker_ts(v text) returns timestamptz
+language plpgsql stable set search_path = public as $$
+begin
+  return v::timestamptz;
+exception when others then return null;
+end $$;
+create or replace function public.tracker_num(v jsonb) returns numeric
+language sql immutable set search_path = public as $$
+  select case when jsonb_typeof(v) = 'number' then v::text::numeric end
+$$;
+
+-- Everything you're partway through, on any device or app, most recent first:
+-- movies, episodes, books, comics, with meta.now (position, episode, chapter, page).
+create or replace function public.get_in_progress(max_rows int default 30) returns jsonb
+language sql stable security definer set search_path = public as $$
+  select coalesce(jsonb_agg(tracker_item_json(i.t) || jsonb_build_object('at', i.at) order by i.at desc), '[]')
+    from (select t, coalesce(tracker_ts(t.meta -> 'now' ->> 'at'), t.updated_at) as at
+            from tracker_items t
+           where t.user_id = tracker_me() and not t.deleted and t.status = 'active'
+             and (t.meta ? 'now' or tracker_num(t.meta -> 'pct') > 0)
+             and coalesce(tracker_num(t.meta -> 'pct'), 0) < 100
+             -- a show's "now" only counts while that episode isn't watched yet
+             and (t.type not in ('show', 'anime') or coalesce(tracker_num(t.meta -> 'now' -> 'episode'), 0) > t.progress)
+           order by at desc limit least(greatest(max_rows, 1), 200)) i
+$$;
 
 -- Is this title in my library? By any id, else by type + title (books and comics from 128bitPlay).
 create or replace function public.find_item(item jsonb) returns jsonb
@@ -658,7 +694,7 @@ drop trigger if exists tracker_apply_event on public.family_events;
 create trigger tracker_apply_event after insert on public.family_events
   for each row execute function public.tracker_apply_event();
 
-revoke all on function public.tracker_find(uuid, jsonb), public.tracker_ensure(uuid, jsonb), public.find_item(jsonb), public.track_items(jsonb), public.tracker_apply_event(), public.tracker_item_json(public.tracker_items), public.tracker_me(), public.tracker_push(jsonb),
+revoke all on function public.tracker_find(uuid, jsonb), public.tracker_ensure(uuid, jsonb), public.find_item(jsonb), public.track_items(jsonb), public.set_progress(jsonb), public.get_in_progress(int), public.tracker_ts(text), public.tracker_num(jsonb), public.tracker_apply_event(), public.tracker_item_json(public.tracker_items), public.tracker_me(), public.tracker_push(jsonb),
   public.tracker_pull(timestamptz), public.get_lists(text, boolean), public.get_list_items(text, int, int),
   public.get_watchlist(text, int), public.get_up_next(int), public.get_calendar(int), public.get_history(bigint, int),
   public.get_item_progress(jsonb), public.create_list(text, text, boolean), public.add_to_list(text, jsonb),
@@ -668,7 +704,7 @@ revoke all on function public.tracker_find(uuid, jsonb), public.tracker_ensure(u
 grant execute on function public.tracker_push(jsonb), public.tracker_pull(timestamptz), public.get_lists(text, boolean),
   public.get_list_items(text, int, int), public.get_watchlist(text, int), public.get_up_next(int), public.get_calendar(int),
   public.get_history(bigint, int), public.get_item_progress(jsonb), public.create_list(text, text, boolean),
-  public.add_to_list(text, jsonb), public.set_watchlist(jsonb, boolean), public.find_item(jsonb), public.track_items(jsonb), public.remove_from_list(text, text), public.rate(text, int),
+  public.add_to_list(text, jsonb), public.set_watchlist(jsonb, boolean), public.find_item(jsonb), public.track_items(jsonb), public.set_progress(jsonb), public.get_in_progress(int), public.remove_from_list(text, text), public.rate(text, int),
   public.set_profile(text, text, boolean), public.tracker_connections_status(), public.tracker_disconnect(text) to authenticated;
 -- Shared lists and public profiles open without signing in, and only when their owner made them public.
 grant execute on function public.get_public_list(text), public.get_public_profile(text) to anon, authenticated;

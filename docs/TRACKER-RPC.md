@@ -59,6 +59,8 @@ Every item comes back in this shape:
 | `set_watchlist` | `item` (as above), `wanted` (bool) | adds it as planned / removes it while it's still just planned → `{ item_id }` |
 | `rate` | `item_id`, `rating` (1–10, null to clear) | |
 | `track_items` | `items`: up to 1000 of `{ type, title, creator, year, poster, ids, season?, status, progress, progress_total, started_at, finished_at, meta }` | everything an app knows you read or watched, or are partway through. Only moves forward (progress up, planned → active → done), never deletes, never touches what you dropped or paused → `{ added, updated }` |
+| `set_progress` | `item`: one item, same shape as `track_items` | live from a player: where you are right now in one title, sent when you pause or leave and every few minutes. Same forward-only rules → `{ added, updated }` |
+| `get_in_progress` | `max_rows` (30) | everything you're partway through on any device or app, most recent first, each with `pct`, `now` and `at`: "continue anywhere" |
 
 **Partway through:** put where you are in `meta` on `track_items` (it replaces
 what was there, so it can go down when you rewatch):

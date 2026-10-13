@@ -22,7 +22,8 @@ export async function connectHealth() {
     return { ok: false, reason: 'Install Health Connect from the Play Store, then tap again.' };
   }
   const { permissions } = await Health.requestHealthPermissions({ permissions: PERMISSIONS });
-  const granted = Object.assign({}, ...(permissions ?? []));
+  // Android returns { READ_STEPS: true, … }; the typings say an array of those.
+  const granted = Array.isArray(permissions) ? Object.assign({}, ...permissions) : { ...(permissions ?? {}) };
   const ok = Object.values(granted).some(Boolean);
   return ok ? { ok: true, granted } : { ok: false, reason: 'No access was given. You can allow it in Health Connect settings.' };
 }

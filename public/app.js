@@ -10,7 +10,7 @@ const APP_COLORS = {
 const STATUS_LABEL = { planned: 'PLANNED', active: 'IN PROGRESS', on_hold: 'ON HOLD', done: 'DONE', dropped: 'DROPPED' };
 
 let META = null;
-const state = { libType: '', libStatus: '', libQuery: '', libList: null, tlSource: '', tlAll: false };
+const state = { libType: '', libStatus: '', libQuery: '', libList: null, tlSource: '', tlAll: false, tlLog: false };
 
 // ---------- helpers ----------
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -131,26 +131,193 @@ function showLogin() {
   }));
 }
 
-// ---------- TODAY ----------
-async function renderToday() {
-  const [trackers, upnext] = await Promise.all([api('GET', '/trackers'), api('GET', '/upnext').catch(() => [])]);
-  const done = trackers.filter((t) => t.today.done).length;
-  view.innerHTML = `
-    <h1 class="view-title"><span class="t">TODAY</span> <span class="muted" style="font-size:.6em">${esc(new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' }))}</span></h1>
-    <p class="view-sub">${trackers.length ? `${done}/${trackers.length} done. Two taps and it's on the record.` : 'Nothing tracked yet. Start with one habit.'}</p>
-    <div class="row" style="margin-bottom:18px"><button class="btn" id="new-tracker">+ NEW TRACKER</button></div>
-    ${trackers.length ? `<div class="cards">${trackers.map(trackerCard).join('')}</div>` : `<div class="empty"><span class="px">NO TRACKERS YET</span>Pick a preset — water, sleep, reading, mood — or make your own.</div>`}
-    ${upnext.length ? `<h2 class="sec">UP NEXT</h2><div class="upnext">${upnext.slice(0, 12).map((u) => `<div class="up-card">
-        <div class="up-cover">${u.cover_url ? `<img src="${esc(u.cover_url)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span aria-hidden="true">${esc(u.icon)}</span>`}</div>
-        <div class="up-body"><b>${esc(u.title)}</b><span class="muted">S${esc(u.next.season)} E${esc(u.next.number)}${u.progress_total ? ` of ${esc(u.progress_total)}` : ''}${u.meta?.now?.episode === u.next.number && u.meta.now.pct ? ` · ${Math.round(u.meta.now.pct)}% in` : ''}</span>
-          <button class="btn teal small" data-watched="${u.id}" data-next="${u.next.number}">✓ WATCHED</button></div></div>`).join('')}</div>` : ''}`;
-  $('#new-tracker').addEventListener('click', newTrackerModal);
-  view.querySelectorAll('[data-watched]').forEach((b) => b.addEventListener('click', guard(async () => {
+// ---------- HOME ----------
+// ---------- watching / reading (Today) ----------
+// Posters: the item's own, else the IMDb poster 128bitPlay uses.
+const coverSrc = (i) => i.cover_url || (i.meta?.imdb_id ? `https://images.metahub.space/poster/medium/${i.meta.imdb_id}/img` : null);
+const coverHtml = (i) => (coverSrc(i) ? `<img src="${esc(coverSrc(i))}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span aria-hidden="true">${esc(i.icon ?? '📦')}</span>`);
+const showKey = (i) => i.meta?.imdb_id ?? i.meta?.kitsu_id ?? i.title.toLowerCase().replace(/[:\s-]*(season|s)\s*\d+$/i, '').trim();
+
+/** Opens the title in 128bitPlay (bit128://open, handled by Play's app/open.tsx). */
+function playLink(i, ep) {
+  const m = i.meta ?? {};
+  const p = new URLSearchParams({ title: i.title });
+  const id = m.imdb_id ?? (m.kitsu_id ? `kitsu:${m.kitsu_id}` : null);
+  if (id) p.set('id', id);
+  if (i.cover_url) p.set('poster', i.cover_url);
+  if (i.type === 'movie') p.set('kind', 'movie');
+  else if (i.type === 'show' || i.type === 'anime') {
+    p.set('kind', ep ? 'episode' : 'show');
+    if (ep) { p.set('season', ep.season ?? 1); p.set('episode', ep.number); }
+  } else if (i.type === 'book') p.set('kind', 'book');
+  else p.set('kind', 'comic');
+  if (m.play_id) p.set('key', m.play_id);
+  return `bit128://open?${p}`;
+}
+const playBtn = (i, ep, label = '▶ PLAY') => `<a class="btn teal small" href="${esc(playLink(i, ep))}">${label}</a>`;
+
+function mediaCard(i, sub, actions = '', pct = null) {
+  return `<div class="up-card">
+    <button class="up-cover" data-item="${i.id}" aria-label="${esc(i.title)}">${coverHtml(i)}</button>
+    <div class="up-body"><b>${esc(i.title)}</b><span class="muted">${sub}</span>
+      ${pct != null ? `<div class="mini-bar" style="width:100%;margin:2px 0"><span style="width:${pct}%"></span></div>` : ''}
+      <div class="up-actions">${actions}</div></div></div>`;
+}
+
+// One colour per kind, everywhere: calendar dots, Continue, the timeline. Changed in
+// settings (🎨 COLOURS) and kept on this device.
+const DEFAULT_COLORS = { show: '#facc15', anime: '#f472b6', movie: '#a855f7', book: '#a0522d', game: '#2dd4bf', accent: '#2dd4bf', heading: '#ff9f1c', background: '#0b0b16' };
+const COLOR_LABEL = { show: 'TV shows', anime: 'Anime', movie: 'Movies', book: 'Audiobooks & books', game: 'Games', accent: 'Buttons & highlights', heading: 'Headings & main buttons', background: 'Background' };
+const KIND_COLOR = { ...DEFAULT_COLORS };
+try { Object.assign(KIND_COLOR, JSON.parse(localStorage.getItem('tracker.colors') || '{}')); } catch { /* no storage */ }
+const shade = (hex, f) => '#' + [1, 3, 5].map((i) => Math.round(parseInt(hex.slice(i, i + 2), 16) * f).toString(16).padStart(2, '0')).join('');
+function applyColors() {
+  const r = document.documentElement.style;
+  r.setProperty('--teal', KIND_COLOR.accent); r.setProperty('--teal-d', shade(KIND_COLOR.accent, 0.45));
+  r.setProperty('--orange', KIND_COLOR.heading); r.setProperty('--orange-d', shade(KIND_COLOR.heading, 0.55));
+  r.setProperty('--bg', KIND_COLOR.background);
+}
+applyColors();
+function saveColors(patch) {
+  Object.assign(KIND_COLOR, patch);
+  const changed = Object.fromEntries(Object.entries(KIND_COLOR).filter(([k, v]) => DEFAULT_COLORS[k] !== v));
+  try { localStorage.setItem('tracker.colors', JSON.stringify(changed)); } catch { /* no storage */ }
+  applyColors();
+}
+
+/** Settings → 🎨 COLOURS: a picker per kind plus the app's own colours. */
+function renderColors(el) {
+  el.innerHTML = `<div class="colors">${Object.keys(DEFAULT_COLORS).map((k) => `<label class="color-row"><input type="color" data-color="${k}" value="${esc(KIND_COLOR[k])}"><span>${esc(COLOR_LABEL[k])}</span></label>`).join('')}</div>
+    <div class="row" style="margin-top:10px"><button class="btn ghost small" id="colors-reset">RESET TO DEFAULT</button></div>`;
+  el.querySelectorAll('[data-color]').forEach((i) => i.addEventListener('input', () => saveColors({ [i.dataset.color]: i.value })));
+  el.querySelector('#colors-reset').addEventListener('click', () => { saveColors({ ...DEFAULT_COLORS }); renderColors(el); toast('COLOURS RESET'); });
+}
+const KIND_NAME = { show: 'TV', anime: 'Anime', movie: 'Movies', book: 'Audiobooks & books', game: 'Games' };
+const kindOf = (e) => e.type ?? (e.kind === 'episode' ? 'show' : 'game');
+
+// Continue: movies, TV shows, anime, then audiobooks & books. TV / anime show
+// the episode you're partway through, else the next one that's out.
+async function renderContinue(el, cal = null) {
+  const [active, upnext] = await Promise.all([api('GET', '/items?status=active&limit=500'), api('GET', '/upnext?limit=100').catch(() => [])]);
+  if (!el.isConnected) return;
+  const today = todayStr();
+  const recent = (a, b) => String(b.meta?.now?.at ?? b.updated_at).localeCompare(String(a.meta?.now?.at ?? a.updated_at));
+  const byShow = new Map();
+  for (const u of upnext) {
+    const k = showKey(u);
+    const prev = byShow.get(k);
+    if (!prev || (u.meta?.season ?? 1) > (prev.meta?.season ?? 1) || ((u.meta?.season ?? 1) === (prev.meta?.season ?? 1) && recent(prev, u) < 0)) byShow.set(k, u);
+  }
+  const midway = (u) => u.meta?.now?.episode === u.next.number && u.meta.now.pct > 0 && u.meta.now.pct < 95;
+  const notOut = (u) => (cal ?? []).some((c) => c.kind === 'episode' && (c.item_id === u.id || c.title.toLowerCase() === u.title.toLowerCase())
+    && c.date > today && c.number != null && c.number <= u.next.number && (c.season == null || c.season === u.next.season));
+  const epCard = (u) => {
+    const ep = `S${esc(u.next.season)} E${esc(u.next.number)}${u.progress_total ? ` of ${esc(u.progress_total)}` : ''}`;
+    return midway(u)
+      ? mediaCard(u, `${ep} · ${Math.round(u.meta.now.pct)}% in`, playBtn(u, u.next, '▶ RESUME'), Math.round(u.meta.now.pct))
+      : mediaCard(u, `Next: ${ep}`, `${playBtn(u, u.next)}<button class="btn small ghost" data-watched="${u.id}" data-next="${u.next.number}">✓ WATCHED</button>`);
+  };
+  const shows = [...byShow.values()].filter((u) => !notOut(u)).sort((a, b) => Number(midway(b)) - Number(midway(a)) || recent(a, b));
+  const groups = [
+    ['movie', '🎬 MOVIES', active.filter((i) => i.type === 'movie' && (progressOf(i).pct ?? 0) < 100).sort(recent).map((i) => {
+      const { pct, label } = progressOf(i);
+      return mediaCard(i, esc(label || 'Watching'), playBtn(i, null, '▶ RESUME'), pct);
+    })],
+    ['show', '📺 TV SHOWS', shows.filter((u) => u.type === 'show').map(epCard)],
+    ['anime', '🌸 ANIME', shows.filter((u) => u.type === 'anime').map(epCard)],
+    // Listening / reading now: audiobooks first.
+    ['book', '🎧 AUDIOBOOKS & BOOKS', active.filter((i) => i.type === 'book')
+      .sort((a, b) => Number(b.meta?.format === 'audiobook') - Number(a.meta?.format === 'audiobook') || recent(a, b))
+      .map((i) => {
+        const { pct, label } = progressOf(i);
+        const audio = i.meta?.format === 'audiobook';
+        return mediaCard(i, `${audio ? '🎧 ' : '📖 '}${esc(label || (audio ? 'Listening' : 'Reading'))}${i.creator ? ` · ${esc(i.creator)}` : ''}`, playBtn(i, null, audio ? '▶ LISTEN' : '▶ READ'), pct);
+      })],
+  ];
+  const body = groups.filter(([, , cards]) => cards.length)
+    .map(([k, title, cards]) => `<h3 class="sub kind" style="--c:${KIND_COLOR[k]}">${title}</h3><div class="upnext kinded" style="--c:${KIND_COLOR[k]}">${cards.join('')}</div>`).join('');
+  el.innerHTML = `<h2 class="sec">▶ CONTINUE</h2>${body || '<p class="muted">Start something in 128bitPlay and it shows up here.</p>'}`;
+  el.querySelectorAll('[data-watched]').forEach((b) => b.addEventListener('click', guard(async () => {
     b.disabled = true;
     await api('POST', `/items/${b.dataset.watched}/sessions`, { progress: Number(b.dataset.next) });
     toast('✓ WATCHED');
-    await renderToday();
+    await renderContinue(el, cal);
   })));
+  el.querySelectorAll('[data-item]').forEach((b) => b.addEventListener('click', guard(async () => itemDetail(await api('GET', `/items/${b.dataset.item}`)))));
+}
+
+// Upcoming: a month calendar, a dot per kind on each day; tap a day for what's on.
+const cal = { month: null, day: null };
+function renderCalendar(el, entries) {
+  const today = todayStr();
+  const byDay = new Map();
+  for (const e of entries) if (e.date) (byDay.get(e.date) ?? byDay.set(e.date, []).get(e.date)).push(e);
+  const firstOut = [...byDay.keys()].sort().find((d) => d >= today);
+  cal.month ??= (byDay.has(today) || !firstOut ? today : firstOut).slice(0, 7);
+  cal.day ??= byDay.has(today) ? today : firstOut ?? today;
+  const [y, m] = cal.month.split('-').map(Number);
+  const start = new Date(y, m - 1, 1);
+  const days = new Date(y, m, 0).getDate();
+  const iso = (d) => `${cal.month}-${String(d).padStart(2, '0')}`;
+  const cells = [...Array(start.getDay()).fill('<span></span>')];
+  for (let d = 1; d <= days; d++) {
+    const list = byDay.get(iso(d)) ?? [];
+    const kinds = [...new Set(list.map(kindOf))].slice(0, 4);
+    cells.push(`<button class="cal-day${iso(d) === today ? ' today' : ''}${iso(d) === cal.day ? ' sel' : ''}${list.length ? ' has' : ''}" data-day="${iso(d)}" aria-label="${iso(d)}${list.length ? `, ${list.length} coming` : ''}">
+      <span>${d}</span><span class="dots">${kinds.map((k) => `<i style="background:${KIND_COLOR[k] ?? '#9a97b8'}"></i>`).join('')}</span></button>`);
+  }
+  const picked = byDay.get(cal.day) ?? [];
+  const label = new Date(cal.day + 'T12:00').toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+  const row = (e) => {
+    const k = kindOf(e);
+    const note = k === 'movie' ? 'In cinemas: start looking for streams' : k === 'book' ? (e.format === 'audiobook' ? 'Audiobook out' : 'Out') : e.detail;
+    return `<div class="cal-entry" style="--c:${KIND_COLOR[k] ?? '#9a97b8'}">
+      <div class="up-cover">${coverHtml({ cover_url: e.cover_url, icon: k === 'movie' ? '🎬' : k === 'anime' ? '🌸' : k === 'book' ? '🎧' : '📺', meta: {} })}</div>
+      <div><b>${esc(e.title)}</b><div class="muted">${esc(KIND_NAME[k] ?? k)} · ${esc(k === 'movie' || k === 'book' ? note : e.detail ?? '')}</div></div></div>`;
+  };
+  const tba = entries.filter((e) => !e.date);
+  el.innerHTML = `<h2 class="sec">📅 UPCOMING</h2>
+    <div class="cal">
+      <div class="cal-head"><button class="btn ghost small" data-month="-1" aria-label="Previous month">‹</button>
+        <b>${esc(start.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }).toUpperCase())}</b>
+        <button class="btn ghost small" data-month="1" aria-label="Next month">›</button></div>
+      <div class="cal-grid">${['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d) => `<span class="cal-wd">${d}</span>`).join('')}${cells.join('')}</div>
+      <div class="cal-legend">${['show', 'anime', 'movie', 'book'].map((k) => `<span><i style="background:${KIND_COLOR[k]}"></i>${KIND_NAME[k]}</span>`).join('')}</div>
+    </div>
+    <h3 class="sub">${esc(label.toUpperCase())}</h3>
+    ${picked.length ? `<div class="cal-list">${picked.map(row).join('')}</div>` : '<p class="muted">Nothing coming that day.</p>'}
+    ${tba.length ? `<h3 class="sub">DATE TBA</h3><div class="cal-list">${tba.map(row).join('')}</div>` : ''}`;
+  el.querySelectorAll('[data-day]').forEach((b) => b.addEventListener('click', () => { cal.day = b.dataset.day; renderCalendar(el, entries); }));
+  el.querySelectorAll('[data-month]').forEach((b) => b.addEventListener('click', () => {
+    const d = new Date(y, m - 1 + Number(b.dataset.month), 1);
+    cal.month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    renderCalendar(el, entries);
+  }));
+}
+
+const habitsOpen = () => { try { return localStorage.getItem('tracker.habits') === '1'; } catch { return false; } };
+
+async function renderToday() {
+  const trackers = await api('GET', '/trackers');
+  const done = trackers.filter((t) => t.today.done).length;
+  view.innerHTML = `
+    <h1 class="view-title"><span class="t">HOME</span> <span class="muted" style="font-size:.6em">${esc(new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' }))}</span></h1>
+    <div id="continue"></div>
+    <div id="upcoming"></div>
+    <details class="habits" id="habits"${habitsOpen() ? ' open' : ''}><summary class="sec">✓ HABITS <span class="muted">${trackers.length ? `${done}/${trackers.length} done today` : ''}</span></summary>
+      <div class="row" style="margin-bottom:18px"><button class="btn" id="new-tracker">+ NEW TRACKER</button></div>
+      ${trackers.length ? `<div class="cards">${trackers.map(trackerCard).join('')}</div>` : `<div class="empty"><span class="px">NO TRACKERS YET</span>Pick a preset — water, sleep, reading, mood — or make your own.</div>`}
+    </details>`;
+  $('#new-tracker').addEventListener('click', newTrackerModal);
+  $('#habits').addEventListener('toggle', (e) => { try { localStorage.setItem('tracker.habits', e.target.open ? '1' : '0'); } catch { /* no storage */ } });
+  const cont = $('#continue');
+  const up = $('#upcoming');
+  renderContinue(cont).catch(() => {});
+  // Air dates may need a lookup: they fill in when ready.
+  api('GET', '/calendar').then((entries) => {
+    if (up.isConnected) renderCalendar(up, entries);
+    if (cont.isConnected) renderContinue(cont, entries).catch(() => {});
+  }).catch(() => {});
   view.querySelectorAll('[data-log]').forEach((b) => b.addEventListener('click', guard(async () => {
     const id = b.dataset.log;
     const value = b.dataset.value === undefined ? undefined : Number(b.dataset.value);
@@ -442,7 +609,7 @@ function progressOf(i) {
 function tile(i) {
   const { pct, label } = progressOf(i);
   return `<button class="tile" data-item="${i.id}">
-    <div class="cover">${i.cover_url ? `<img src="${esc(i.cover_url)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span aria-hidden="true">${esc(i.icon)}</span>`}
+    <div class="cover">${coverHtml(i)}
       <span class="status ${i.status}">${STATUS_LABEL[i.status]}</span>${i.trophy_kind ? `<span class="trophy-badge" title="${TROPHY_NAMES[i.trophy_kind]}">${trophySvg(i.trophy_kind, 30)}</span>` : ''}${i.source !== 'manual' ? `<span class="src">${esc(i.source.replace('128bit', ''))}</span>` : ''}</div>
     <div class="tile-body"><div class="tile-title">${esc(i.title)}</div>
       <div class="tile-sub">${esc(i.icon)} ${esc(i.type)}${i.meta?.season ? ' · S' + esc(i.meta.season) : ''}${i.creator ? ' · ' + esc(i.creator) : ''}${i.year ? ' · ' + i.year : ''}</div>
@@ -469,6 +636,7 @@ function itemModal(item = {}, opts = {}) {
       <div class="field"><label for="if-creator">CREATOR</label><input class="input" id="if-creator" name="creator" maxlength="120" value="${esc(item.creator ?? '')}" placeholder="Author, studio, artist"></div>
       <div class="field"><label for="if-year">YEAR</label><input class="input" id="if-year" name="year" type="number" min="0" value="${esc(item.year ?? '')}"></div>
       <div class="field"><label for="if-total">TOTAL (PAGES / EPISODES)</label><input class="input" id="if-total" name="progress_total" type="number" min="0" step="any" value="${esc(item.progress_total ?? '')}"></div>
+      <div class="field"><label for="if-release">RELEASE DATE (SHOWS ON THE CALENDAR)</label><input class="input" id="if-release" name="release_date" type="date" value="${esc(item.meta?.release_date ?? '')}"></div>
       <div class="field"><label for="if-cover">COVER IMAGE URL</label><input class="input" id="if-cover" name="cover_url" type="url" value="${esc(item.cover_url ?? '')}" placeholder="https://…"></div>
       <div class="field"><label for="if-season">SEASON (SHOWS)</label><input class="input" id="if-season" name="season" type="number" min="0" value="${esc(item.meta?.season ?? '')}" placeholder="1"></div>
     </div>
@@ -523,7 +691,8 @@ function itemModal(item = {}, opts = {}) {
     m.querySelector('form').addEventListener('submit', guard(async (e) => {
       e.preventDefault();
       const { season, ...f } = formData(e.target);
-      const body = { ...f, year: f.year || null, progress_total: f.progress_total || null, cover_url: f.cover_url || null, creator: f.creator || null, meta: { ...picked, season: season ? Number(season) : null } };
+      const { release_date: releaseDate, ...rest } = f;
+      const body = { ...rest, year: f.year || null, progress_total: f.progress_total || null, cover_url: f.cover_url || null, creator: f.creator || null, meta: { ...picked, season: season ? Number(season) : null, release_date: releaseDate || null } };
       const saved = editing ? await api('PATCH', `/items/${item.id}`, body) : await api('POST', '/items', body);
       if (!editing) for (const listId of onLists) await api('PUT', `/collections/${listId}/items/${saved.id}`);
       close(); toast(editing ? 'SAVED' : onLists.size ? `ADDED · ON ${onLists.size} ${onLists.size === 1 ? 'LIST' : 'LISTS'}` : 'ADDED');
@@ -597,7 +766,9 @@ async function renderTimeline() {
   const all = await api('GET', '/events?' + q);
   // Highlights hide per-tap logs and Tracker's mirror of events another app already sent.
   const covered = finishedSittings(all);
-  const events = state.tlAll ? all : all.filter((e) => e.type !== 'habit.logged' && !(e.source === '128bittracker' && e.type.startsWith('item.') && e.data.source && e.data.source !== 'manual') && !covered.has(e.id));
+  const shown = state.tlAll ? all : all.filter((e) => e.type !== 'habit.logged' && !(e.source === '128bittracker' && e.type.startsWith('item.') && e.data.source && e.data.source !== 'manual') && !covered.has(e.id));
+  // Watch log: only what you watched, listened to and read.
+  const events = state.tlLog ? shown.filter((e) => WATCH_LOG.has(e.type) || e.type.endsWith('.session')) : shown;
   const groups = new Map();
   for (const e of events) {
     const d = new Date(e.occurred_at).toLocaleDateString('en-CA');
@@ -613,12 +784,14 @@ async function renderTimeline() {
       <button class="chip" data-src="" aria-pressed="${!state.tlSource}">All apps</button>
       ${sources.map((s) => `<button class="chip" data-src="${s}" aria-pressed="${state.tlSource === s}" style="--c:${APP_COLORS[s]}">${s.replace('128bit', '')}</button>`).join('')}
       <span class="spacer"></span>
+      <button class="chip" id="tl-log" aria-pressed="${state.tlLog}">▶ watch log</button>
       <button class="chip" id="tl-all" aria-pressed="${state.tlAll}">show every log</button>
     </div>
     ${events.length ? [...groups].map(([day, evs]) => `<div class="tl-day">${day === todayStr() ? 'TODAY' : esc(new Date(day + 'T12:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }).toUpperCase())}</div>
       <div class="tl">${evs.map(tlItem).join('')}</div>`).join('') : `<div class="empty"><span class="px">QUIET SO FAR</span>Log a habit or connect a 128bit app and events show up here.</div>`}`;
   view.querySelectorAll('[data-src]').forEach((b) => b.addEventListener('click', () => { state.tlSource = b.dataset.src; guard(renderTimeline)(); }));
   $('#tl-all').addEventListener('click', () => { state.tlAll = !state.tlAll; guard(renderTimeline)(); });
+  $('#tl-log').addEventListener('click', () => { state.tlLog = !state.tlLog; guard(renderTimeline)(); });
   renderComingUp($('#coming-up'));
 }
 
@@ -659,13 +832,47 @@ function finishedSittings(all) {
   return new Set(all.filter((e) => !e.type.endsWith('.session') && done.has(keyOf(e))).map((e) => e.id));
 }
 
+const WATCH_LOG = new Set(['movie.watched', 'episode.watched', 'book.finished', 'chapter.read']);
+// 42:10 / 1:12:30
+const fmtPos = (sec) => {
+  const t = Math.max(0, Math.round(Number(sec) || 0));
+  const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), x = String(t % 60).padStart(2, '0');
+  return h ? `${h}:${String(m).padStart(2, '0')}:${x}` : `${m}:${x}`;
+};
+// What a watch / listen / read entry is, for its colour.
+function mediaKind(e) {
+  const d = e.data ?? {};
+  if (e.type === 'watch.session' || e.type === 'episode.watched' || e.type === 'movie.watched') {
+    if (d.kind === 'movie' || e.type === 'movie.watched') return 'movie';
+    return d.anime || d.kitsu ? 'anime' : 'show';
+  }
+  if (e.type === 'listen.session' || e.type === 'book.finished') return 'book';
+  return null;
+}
+// "🕒 7:40–8:10 PM · ⏱ 42:10 → 1:12:30": when, and where in it you started and stopped.
+function sittingLine(e) {
+  if (!e.type.endsWith('.session')) return '';
+  const d = e.data ?? {};
+  const t = (x) => x.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const end = new Date(e.occurred_at);
+  const clock = d.started_at ? `${t(new Date(d.started_at))}–${t(end)}` : t(end);
+  let where = '';
+  if (d.from_s != null && d.to_s != null) {
+    where = e.type === 'listen.session' && d.from_chapter
+      ? `Ch ${d.from_chapter} ${fmtPos(d.from_s)} → Ch ${d.to_chapter} ${fmtPos(d.to_s)}`
+      : `${fmtPos(d.from_s)} → ${fmtPos(d.to_s)}`;
+  }
+  return `<div class="tl-sit">🕒 ${esc(clock)}${where ? ` · ⏱ ${esc(where)}${d.finished ? '' : ' · stopped here'}` : ''}</div>`;
+}
+
 function tlItem(e) {
-  const c = APP_COLORS[e.source] ?? '#9a97b8';
+  const k = mediaKind(e);
+  const c = (k && KIND_COLOR[k]) || APP_COLORS[e.source] || '#9a97b8';
   const title = e.title ?? describe(e);
   const d = e.data ?? {};
   const from = Number(d.from_pct ?? d.to_pct), to = d.finished ? 100 : Number(d.to_pct);
   const bar = e.type.endsWith('.session') && Number.isFinite(to) ? `<div class="tl-bar" title="${Number.isFinite(from) ? from : 0}% → ${to}%"><span style="left:${Math.min(from || 0, to)}%;width:${Math.max(1, to - Math.min(from || 0, to))}%"></span></div>` : '';
-  return `<div class="tl-item" style="--c:${c}"><div class="tl-title">${esc(title)}</div>${bar}
+  return `<div class="tl-item" style="--c:${c}"><div class="tl-title">${esc(title)}</div>${bar}${sittingLine(e)}
     <div class="tl-meta"><span class="app-tag" style="--c:${c}">${esc(e.source.replace('128bit', '').toUpperCase() || e.source)}</span>
       <span>${esc(e.type)}</span><span>${new Date(e.occurred_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span></div></div>`;
 }
@@ -804,8 +1011,13 @@ async function renderConnect() {
 
     <h2 class="sec">YOUR DATA</h2>
     <p class="muted" style="margin-bottom:12px">Local-first: it all lives in one SQLite file on your machine.</p>
-    <div class="row"><a class="btn ghost" href="#" id="export">⬇ EXPORT JSON</a>${importButton()}</div>`;
+    <div class="row"><a class="btn ghost" href="#" id="export">⬇ EXPORT JSON</a>${importButton()}</div>
+    <h2 class="sec">🎨 COLOURS</h2>
+    <p class="muted" style="font-size:13px;line-height:1.6;margin-bottom:10px">Pick a colour for each kind (calendar, Continue, timeline) and for the app itself. Saved on this device.</p>
+    <div id="colors"></div>
+`;
   bindImport(renderConnect);
+  renderColors($('#colors'));
   await renderFamily($('#family'));
   await renderPlatforms($('#platforms'), 'games');
   await renderPlatforms($('#media-accounts'), 'media');
@@ -1201,9 +1413,13 @@ async function renderSync() {
     <p class="muted" style="margin-bottom:12px">Updates come from GitHub Releases and install over this app, keeping your data.</p>
     <div class="row" style="margin-bottom:12px"><button class="btn ghost" id="up-check">⟳ CHECK FOR UPDATES</button><span class="muted" id="up-version"></span></div>
     </details>
+    <h2 class="sec">🎨 COLOURS</h2>
+    <p class="muted" style="font-size:13px;line-height:1.6;margin-bottom:10px">Pick a colour for each kind (calendar, Continue, timeline) and for the app itself. Saved on this device.</p>
+    <div id="colors"></div>
     <h2 class="sec">FILES</h2>
     <div class="row"><button class="btn ghost" id="export">⬇ EXPORT JSON</button>${importButton()}</div>`;
   bindImport(renderSync);
+  renderColors($('#colors'));
   await renderFamily($('#family'));
   await renderHealth($('#health'));
   await renderPlatforms($('#platforms'), 'games');

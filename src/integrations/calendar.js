@@ -4,6 +4,9 @@
 //   shows   TMDB next_episode_to_air when a TMDB id + key exist, else TVmaze (no key)
 //   anime   AniList nextAiringEpisode (no key)
 //   games   Steam store release dates (no key), IGDB when keys are set
+//   movies  TMDB release dates for movies you plan to watch (by TMDB or IMDb id)
+//   books   Google Books publication dates for books / audiobooks you plan to read (no key)
+//   any item with meta.release_date (set by hand) shows on that day
 //
 // Lookups are cached for a few hours; titles without ids are matched by name once.
 import { serviceConfig } from './services.js';
@@ -12,6 +15,8 @@ import { hubOn, routedFetch } from './hub.js';
 
 const TTL = 6 * 3600_000;
 const WATCHING = "status IN ('active','planned','on_hold')";
+
+const CACHE_VERSION = 3; // bump when entries gain fields
 
 const kvGet = (ctx, k) => {
   const v = ctx.db.prepare('SELECT value FROM kv WHERE key = ?').get(k)?.value;
@@ -22,10 +27,12 @@ const kvPut = (ctx, k, v) =>
 
 export async function upcoming(ctx, { refresh = false } = {}) {
   const cached = kvGet(ctx, 'cal.cache');
-  if (!refresh && cached && Date.now() - cached.at < TTL) return cached.entries;
+  // Release dates set by hand show up straight away.
+  const sig = ctx.db.prepare("SELECT group_concat(id || ':' || json_extract(meta, '$.release_date') || ':' || status) AS s FROM items WHERE json_extract(meta, '$.release_date') IS NOT NULL").get()?.s ?? '';
+  if (!refresh && cached && cached.v === CACHE_VERSION && cached.sig === sig && Date.now() - cached.at < TTL) return cached.entries;
   // Signed in to a 128bit account: TMDB and IGDB go through 128bit's keys.
   const fetch = routedFetch(ctx);
-  const items = ctx.db.prepare(`SELECT id, type, title, cover_url, meta FROM items WHERE type IN ('show','anime','game') AND ${WATCHING}`).all()
+  const items = ctx.db.prepare(`SELECT id, type, title, creator, status, year, cover_url, meta FROM items WHERE type IN ('show','anime','game','movie','book') AND ${WATCHING}`).all()
     .map((i) => ({ ...i, meta: JSON.parse(i.meta) }));
 
   const entries = [];
@@ -33,12 +40,20 @@ export async function upcoming(ctx, { refresh = false } = {}) {
   await safe(() => shows(ctx, fetch, items.filter((i) => i.type === 'show'), entries));
   await safe(() => anime(fetch, items.filter((i) => i.type === 'anime'), entries));
   await safe(() => games(ctx, fetch, items.filter((i) => i.type === 'game'), entries));
+  // Set by hand: that date wins over any lookup.
+  const manual = items.filter((i) => /^\d{4}-\d{2}-\d{2}$/.test(i.meta.release_date ?? ''));
+  const byHand = new Set(manual.map((i) => i.id));
+  await safe(() => movies(ctx, fetch, items.filter((i) => i.type === 'movie' && !byHand.has(i.id)), entries));
+  await safe(() => books(ctx, fetch, items.filter((i) => i.type === 'book' && !byHand.has(i.id)), entries));
+  for (const i of manual) {
+    entries.push({ kind: 'release', date: i.meta.release_date, title: i.title, detail: releaseDetail(i), type: i.type, format: i.meta.format ?? null, item_id: i.id, cover_url: i.cover_url });
+  }
 
   const today = new Date().toISOString().slice(0, 10);
   const result = entries
     .filter((e) => !e.date || e.date >= today)
     .sort((a, b) => (a.date ?? '9999').localeCompare(b.date ?? '9999'));
-  kvPut(ctx, 'cal.cache', { at: Date.now(), entries: result });
+  kvPut(ctx, 'cal.cache', { v: CACHE_VERSION, sig, at: Date.now(), entries: result });
   return result;
 }
 
@@ -69,7 +84,15 @@ async function shows(ctx, fetch, list, out) {
         headers: v4 ? { Authorization: `Bearer ${tmdb}` } : {},
       });
       const n = s.next_episode_to_air;
-      if (n) out.push({ kind: 'episode', date: n.air_date, title: item.title, detail: `S${n.season_number} E${n.episode_number}${n.name ? ` · ${n.name}` : ''}`, item_id: item.id, cover_url: item.cover_url });
+      if (!n) continue;
+      // The rest of that season too, so the calendar shows every coming episode.
+      const season = await json(fetch, `https://api.themoviedb.org/3/tv/${item.meta.tmdb_id}/season/${n.season_number}${v4 ? '' : `?api_key=${tmdb}`}`, {
+        headers: v4 ? { Authorization: `Bearer ${tmdb}` } : {},
+      }).catch(() => ({ episodes: [n] }));
+      const today = new Date().toISOString().slice(0, 10);
+      for (const e of (season.episodes ?? [n]).filter((e) => e.air_date && e.air_date >= today && e.episode_number >= n.episode_number).slice(0, 26)) {
+        out.push({ kind: 'episode', date: e.air_date, title: item.title, detail: `S${e.season_number} E${e.episode_number}${e.name ? ` · ${e.name}` : ''}`, season: e.season_number, number: e.episode_number, type: 'show', item_id: item.id, cover_url: item.cover_url });
+      }
       continue;
     }
     let id = item.meta.tvmaze_id ?? ids.get(item.title);
@@ -79,15 +102,17 @@ async function shows(ctx, fetch, list, out) {
       ids.set(item.title, id);
     }
     if (!id) continue;
-    const s = await json(fetch, `https://api.tvmaze.com/shows/${id}?embed=nextepisode`);
-    const n = s._embedded?.nextepisode;
-    if (n) out.push({ kind: 'episode', date: n.airdate || null, title: item.title, detail: `S${n.season} E${n.number}${n.name ? ` · ${n.name}` : ''}`, item_id: item.id, cover_url: item.cover_url });
+    const eps = await json(fetch, `https://api.tvmaze.com/shows/${id}/episodes`);
+    const today = new Date().toISOString().slice(0, 10);
+    for (const n of eps.filter((e) => e.airdate && e.airdate >= today).slice(0, 26)) {
+      out.push({ kind: 'episode', date: n.airdate, title: item.title, detail: `S${n.season} E${n.number}${n.name ? ` · ${n.name}` : ''}`, season: n.season, number: n.number, type: 'show', item_id: item.id, cover_url: item.cover_url });
+    }
   }
 }
 
 const ANILIST_NEXT = `query ($ids: [Int], $search: String) {
-  byId: Page(perPage: 50) { media(id_in: $ids, type: ANIME) { id title { english romaji } nextAiringEpisode { airingAt episode } } }
-  byName: Media(search: $search, type: ANIME) { id title { english romaji } nextAiringEpisode { airingAt episode } }
+  byId: Page(perPage: 50) { media(id_in: $ids, type: ANIME) { id title { english romaji } airingSchedule(notYetAired: true, perPage: 26) { nodes { airingAt episode } } } }
+  byName: Media(search: $search, type: ANIME) { id title { english romaji } airingSchedule(notYetAired: true, perPage: 26) { nodes { airingAt episode } } }
 }`;
 
 async function anime(fetch, list, out) {
@@ -106,8 +131,9 @@ async function anime(fetch, list, out) {
   for (const item of list) {
     let m = item.meta.anilist_id ? found.get(item.meta.anilist_id) : null;
     if (!item.meta.anilist_id) m = (await post({ ids: [], search: item.title }).catch(() => null))?.data?.byName ?? null;
-    const n = m?.nextAiringEpisode;
-    if (n) out.push({ kind: 'episode', date: new Date(n.airingAt * 1000).toISOString().slice(0, 10), title: item.title, detail: `Episode ${n.episode}`, item_id: item.id, cover_url: item.cover_url });
+    for (const n of m?.airingSchedule?.nodes ?? []) {
+      out.push({ kind: 'episode', date: new Date(n.airingAt * 1000).toISOString().slice(0, 10), title: item.title, detail: `Episode ${n.episode}`, number: n.episode, type: 'anime', item_id: item.id, cover_url: item.cover_url });
+    }
   }
 }
 
@@ -136,5 +162,43 @@ async function games(ctx, fetch, list, out) {
       item_id: item.id,
       cover_url: item.cover_url,
     });
+  }
+}
+
+// Movies on your list that aren't out yet: TMDB release dates (by TMDB id, else IMDb id).
+async function movies(ctx, fetch, list, out) {
+  const tmdb = serviceConfig(ctx, 'tmdb').token || (hubOn(ctx) ? '' : null);
+  if (tmdb == null) return;
+  const v4 = tmdb.length > 40;
+  const get = (path) => json(fetch, `https://api.themoviedb.org/3${path}${v4 || !tmdb ? '' : `${path.includes('?') ? '&' : '?'}api_key=${tmdb}`}`, { headers: v4 ? { Authorization: `Bearer ${tmdb}` } : {} });
+  const thisYear = new Date().getFullYear();
+  // Only ones that could still be coming: no year yet, or this year or later.
+  for (const item of list.filter((i) => !i.year || i.year >= thisYear).slice(0, 40)) {
+    let m = null;
+    if (item.meta.tmdb_id) m = await get(`/movie/${item.meta.tmdb_id}`);
+    else if (item.meta.imdb_id) m = (await get(`/find/${item.meta.imdb_id}?external_source=imdb_id`)).movie_results?.[0] ?? null;
+    if (m?.release_date && m.release_date >= new Date().toISOString().slice(0, 10)) {
+      out.push({ kind: 'release', date: m.release_date, title: item.title, detail: 'In cinemas', type: 'movie', item_id: item.id, cover_url: item.cover_url });
+    }
+  }
+}
+
+const releaseDetail = (i) => (i.type === 'movie' ? 'In cinemas' : i.type === 'book' ? (i.meta.format === 'audiobook' ? 'Audiobook out' : 'Book out') : 'Out');
+
+// Books and audiobooks you plan to read that aren't out yet: Google Books' publication date.
+async function books(ctx, fetch, list, out) {
+  const known = idMap(ctx, 'gbooks'); // title|author → date or null, looked up once
+  const today = new Date().toISOString().slice(0, 10);
+  for (const item of list.filter((i) => i.status !== 'active').slice(0, 40)) {
+    const key = `${item.title}|${item.creator ?? ''}`;
+    let date = known.get(key);
+    if (date === undefined && !known.has(key)) {
+      const q = `intitle:${item.title}${item.creator ? `+inauthor:${item.creator}` : ''}`;
+      const j = await json(fetch, `https://www.googleapis.com/books/v1/volumes?${new URLSearchParams({ q, orderBy: 'newest', maxResults: '5', printType: 'books' })}`).catch(() => null);
+      const hit = (j?.items ?? []).map((v) => v.volumeInfo).find((v) => v?.title?.toLowerCase() === item.title.toLowerCase() && /^\d{4}-\d{2}-\d{2}$/.test(v.publishedDate ?? ''));
+      date = hit?.publishedDate ?? null;
+      known.set(key, date);
+    }
+    if (date && date >= today) out.push({ kind: 'release', date, title: item.title, detail: releaseDetail(item), type: 'book', format: item.meta.format ?? null, item_id: item.id, cover_url: item.cover_url });
   }
 }

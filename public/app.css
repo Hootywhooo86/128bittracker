@@ -278,3 +278,33 @@ details.advanced[open]>summary::before{content:'▾ '}
 .lib-sec>summary::-webkit-details-marker{display:none}
 .lib-sec>summary::before{content:'▸ ';color:var(--muted)}
 .lib-sec[open]>summary::before{content:'▾ '}
+
+h3.sub{font-family:var(--px,inherit);font-size:11px;letter-spacing:.08em;color:var(--muted);margin:14px 0 8px}
+.up-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:auto}
+button.up-cover{border:0;padding:0;cursor:pointer;color:inherit}
+a.btn{text-decoration:none;display:inline-block}
+
+h3.sub.kind{color:var(--c)}
+.upnext.kinded .up-card{border-left:6px solid var(--c)}
+.cal{background:var(--panel);border:3px solid var(--line);box-shadow:4px 4px 0 var(--shadow);padding:10px;max-width:520px}
+.cal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.cal-wd{text-align:center;font-size:11px;color:var(--muted)}
+.cal-day{aspect-ratio:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;background:var(--panel-2);border:2px solid transparent;color:var(--ink);font:inherit;font-size:13px;cursor:pointer;padding:0}
+.cal-day.today{border-color:var(--muted)}
+.cal-day.sel{border-color:var(--teal);background:var(--bg)}
+.cal-day:not(.has){opacity:.55}
+.cal-day .dots{display:flex;gap:2px;height:6px}
+.cal-day .dots i,.cal-legend i{display:inline-block;width:6px;height:6px;border-radius:50%}
+.cal-legend{display:flex;flex-wrap:wrap;gap:12px;margin-top:10px;font-size:12px;color:var(--muted)}
+.cal-legend span{display:flex;align-items:center;gap:5px}
+.cal-list{display:grid;gap:8px;max-width:520px}
+.cal-entry{display:flex;gap:10px;align-items:center;background:var(--panel);border:3px solid var(--line);border-left:6px solid var(--c);padding:8px}
+.cal-entry .up-cover{width:40px;height:58px}
+.cal-entry .muted{font-size:13px}
+.habits{margin-top:22px}
+.habits>summary{cursor:pointer}
+.tl-sit{font-size:12px;color:var(--muted);margin-top:4px}
+.colors{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px;max-width:640px}
+.color-row{display:flex;align-items:center;gap:10px;background:var(--panel);border:3px solid var(--line);padding:6px 10px;cursor:pointer;font-size:14px}
+.color-row input{width:36px;height:28px;border:0;background:none;padding:0;cursor:pointer}

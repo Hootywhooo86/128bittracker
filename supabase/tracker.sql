@@ -138,6 +138,7 @@ language sql immutable set search_path = public as $$
   select jsonb_build_object('id', i.id, 'type', i.type, 'title', i.title, 'creator', i.creator, 'year', i.year,
     'poster', i.cover_url, 'backdrop', i.backdrop_url, 'status', i.status, 'progress', i.progress,
     'progress_total', i.progress_total, 'rating', i.rating, 'season', i.season, 'ids', i.ids,
+    'pct', i.meta -> 'pct', 'now', i.meta -> 'now',
     'started_at', i.started_at, 'finished_at', i.finished_at, 'updated_at', i.updated_at)
 $$;
 
@@ -445,7 +446,8 @@ begin
     rank_new := case st when 'done' then 2 when 'active' then 1 else 0 end;
     if rank_old = 99 then continue; end if;
     if rank_new <= rank_old and coalesce((r ->> 'progress')::numeric, 0) <= it.progress
-       and (it.progress_total is not null or r ->> 'progress_total' is null) and it.ids @> coalesce(r -> 'ids', '{}') then
+       and (it.progress_total is not null or r ->> 'progress_total' is null) and it.ids @> coalesce(r -> 'ids', '{}')
+       and it.meta @> coalesce(r -> 'meta', '{}') then
       continue; -- nothing new
     end if;
     update tracker_items set

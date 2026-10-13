@@ -60,8 +60,22 @@ select pg_temp.expect((select count(*) from jsonb_array_elements(public.get_watc
 select pg_temp.expect(public.find_item('{"type": "book", "title": "Project Hail Mary"}') ->> 'creator' = 'Andy Weir', 'find by title');
 select pg_temp.expect(public.find_item('{"type": "comic", "title": "Project Hail Mary"}') is null, 'type must match');
 select public.add_to_list('L1', '{"type": "movie", "title": "Arrival", "ids": {"imdb": "tt2543164"}}');
+-- 128bitPlay's history: audiobooks, comics, movies, show seasons. Forward only, no duplicates.
+select pg_temp.expect(public.track_items('[
+  {"type": "book", "title": "Dune", "creator": "Frank Herbert", "status": "active", "progress": 40, "progress_total": 100, "meta": {"format": "audiobook"}},
+  {"type": "comic", "title": "Saga", "status": "active", "progress": 12},
+  {"type": "movie", "title": "Arrival", "ids": {"imdb": "tt2543164"}, "status": "done"},
+  {"type": "show", "title": "Severance", "season": 2, "ids": {"imdb": "tt11280740"}, "status": "active", "progress": 4, "progress_total": 10}
+]') ->> 'added' = '3', 'three new, Arrival already there');
+select pg_temp.expect(public.find_item('{"ids": {"imdb": "tt2543164"}}') ->> 'status' = 'done', 'watched movie finished');
+select public.track_items('[{"type": "book", "title": "dune", "status": "active", "progress": 20}, {"type": "comic", "title": "Saga", "status": "planned"}]');
+select pg_temp.expect((public.find_item('{"type": "book", "title": "Dune"}') ->> 'progress')::numeric = 40, 'progress never goes back');
+select pg_temp.expect(public.find_item('{"type": "comic", "title": "Saga"}') ->> 'status' = 'active', 'status never goes back');
+select public.track_items('[{"type": "book", "title": "Dune", "status": "done"}]');
+select pg_temp.expect((public.find_item('{"type": "book", "title": "Dune"}') ->> 'progress')::numeric = 100, 'finishing fills the progress');
+select pg_temp.expect(jsonb_array_length(public.get_item_progress('{"imdb": "tt11280740"}')) = 2, 'season 2 is its own item');
 select pg_temp.expect(public.find_item('{"ids": {"imdb": "tt2543164"}}') ->> 'title' = 'Arrival', 'a removed watchlist title comes back via a list');
-select pg_temp.expect(jsonb_array_length(public.get_item_progress('{"imdb": "tt11280740"}')) = 1, 'a show in progress isn''t removed');
+select pg_temp.expect(jsonb_array_length(public.get_item_progress('{"imdb": "tt11280740"}')) = 2, 'a show in progress isn''t removed');
 
 -- Direct table access finds nothing, even for the owner (functions only).
 select pg_temp.expect((select count(*) from public.tracker_items) = 0, 'RLS hides tables');
@@ -79,7 +93,7 @@ select public.log_events('[{"id": "p2", "app": "play", "type": "episode.watched"
 select pg_temp.expect(public.get_item_progress('{"imdb": "tt11280740"}') -> 0 ->> 'status' = 'done', 'finale finishes the season');
 select public.log_events('[{"id": "p3", "app": "play", "type": "episode.watched", "at": 1790000002000,
   "data": {"show": "Frieren", "episode": "S1 E1", "anime": true, "season_episodes": 28}}]');
-select pg_temp.expect(public.get_up_next() -> 0 ->> 'type' = 'anime', 'anime from Play is anime');
+select pg_temp.expect((select count(*) from jsonb_array_elements(public.get_up_next()) u where u ->> 'title' = 'Frieren' and u ->> 'type' = 'anime') = 1, 'anime from Play is anime');
 select public.log_events('[{"id": "p4", "app": "play", "type": "movie.watched", "at": 1790000003000, "data": {"title": "Dune", "imdb": "tt1160419"}}]');
 select pg_temp.expect(public.get_item_progress('{"imdb": "tt1160419"}') -> 0 ->> 'status' = 'done', 'movie watched');
 select pg_temp.expect(jsonb_array_length(public.get_history()) = 4, 'history');

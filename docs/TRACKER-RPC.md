@@ -58,6 +58,7 @@ Every item comes back in this shape:
 | `remove_from_list` | `list_id`, `item_id` | |
 | `set_watchlist` | `item` (as above), `wanted` (bool) | adds it as planned / removes it while it's still just planned → `{ item_id }` |
 | `rate` | `item_id`, `rating` (1–10, null to clear) | |
+| `track_items` | `items`: up to 1000 of `{ type, title, creator, year, poster, ids, season?, status, progress, progress_total, started_at, finished_at, meta }` | everything an app knows you read or watched, or are partway through. Only moves forward (progress up, planned → active → done), never deletes, never touches what you dropped or paused → `{ added, updated }` |
 
 **Watching something:** keep posting `movie.watched` / `episode.watched` to the
 family feed (`log_events`). Tracker applies it to the library straight away,

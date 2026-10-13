@@ -400,6 +400,73 @@ begin
   return jsonb_build_object('item_id', iid);
 end $$;
 
+-- Everything another app knows you read, watched or are partway through (128bitPlay sends its
+-- audiobooks, comics, movies and shows). Only ever moves things forward: progress goes up,
+-- planned → in progress → finished; never deletes, never undoes a finish, never touches
+-- something you dropped or put on hold yourself. Shows come one item per season.
+create or replace function public.track_items(items jsonb) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  me uuid := tracker_me();
+  r jsonb;
+  it tracker_items;
+  added int := 0;
+  changed int := 0;
+  st text;
+  rank_new int;
+  rank_old int;
+begin
+  if jsonb_typeof(items) <> 'array' or jsonb_array_length(items) > 1000 then raise exception 'Send a list of at most 1000 items'; end if;
+  for r in select * from jsonb_array_elements(items) loop
+    continue when coalesce(r ->> 'title', '') = '';
+    st := coalesce(r ->> 'status', case when coalesce((r ->> 'progress')::numeric, 0) > 0 then 'active' else 'planned' end);
+    continue when st not in ('planned', 'active', 'done');
+    it := null;
+    if r ->> 'season' is not null then
+      select * into it from tracker_items t
+       where t.user_id = me and not t.deleted and t.season = (r ->> 'season')::int and t.type = coalesce(r ->> 'type', 'show')
+         and ((r -> 'ids' ? 'imdb' and t.ids ->> 'imdb' = r -> 'ids' ->> 'imdb') or lower(t.title) = lower(r ->> 'title'))
+       limit 1;
+    else
+      it := tracker_find(me, r);
+    end if;
+    if it.id is null then
+      insert into tracker_items (user_id, id, type, title, creator, year, cover_url, status, progress, progress_total, season, ids, meta, started_at, finished_at)
+      values (me, 'i-' || replace(gen_random_uuid()::text, '-', ''), left(coalesce(r ->> 'type', 'movie'), 24), left(r ->> 'title', 200),
+              left(r ->> 'creator', 120), (r ->> 'year')::int, left(r ->> 'poster', 1000), st,
+              coalesce((r ->> 'progress')::numeric, case when st = 'done' then coalesce((r ->> 'progress_total')::numeric, 1) else 0 end),
+              (r ->> 'progress_total')::numeric, (r ->> 'season')::int, coalesce(r -> 'ids', '{}'), coalesce(r -> 'meta', '{}'),
+              case when st <> 'planned' then coalesce((r ->> 'started_at')::timestamptz, now()) end,
+              case when st = 'done' then coalesce((r ->> 'finished_at')::timestamptz, now()) end);
+      added := added + 1;
+      continue;
+    end if;
+    rank_old := case when it.deleted then -1 when it.status in ('dropped', 'on_hold') then 99 when it.status = 'done' then 2 when it.status = 'active' then 1 else 0 end;
+    rank_new := case st when 'done' then 2 when 'active' then 1 else 0 end;
+    if rank_old = 99 then continue; end if;
+    if rank_new <= rank_old and coalesce((r ->> 'progress')::numeric, 0) <= it.progress
+       and (it.progress_total is not null or r ->> 'progress_total' is null) and it.ids @> coalesce(r -> 'ids', '{}') then
+      continue; -- nothing new
+    end if;
+    update tracker_items set
+        deleted = false,
+        status = case when rank_new > greatest(rank_old, 0) then st else status end,
+        progress = greatest(progress, coalesce((r ->> 'progress')::numeric, 0),
+                            case when rank_new = 2 and rank_old < 2 then coalesce(progress_total, (r ->> 'progress_total')::numeric, 0) else 0 end),
+        progress_total = coalesce(progress_total, (r ->> 'progress_total')::numeric),
+        ids = ids || coalesce(r -> 'ids', '{}'),
+        meta = meta || coalesce(r -> 'meta', '{}'),
+        cover_url = coalesce(cover_url, left(r ->> 'poster', 1000)),
+        creator = coalesce(creator, left(r ->> 'creator', 120)),
+        started_at = coalesce(started_at, case when rank_new >= 1 then coalesce((r ->> 'started_at')::timestamptz, now()) end),
+        finished_at = coalesce(finished_at, case when rank_new = 2 then coalesce((r ->> 'finished_at')::timestamptz, now()) end),
+        updated_at = now(), synced_at = now()
+     where user_id = me and id = it.id;
+    changed := changed + 1;
+  end loop;
+  return jsonb_build_object('added', added, 'updated', changed);
+end $$;
+
 -- Is this title in my library? By any id, else by type + title (books and comics from 128bitPlay).
 create or replace function public.find_item(item jsonb) returns jsonb
 language plpgsql stable security definer set search_path = public as $$
@@ -589,7 +656,7 @@ drop trigger if exists tracker_apply_event on public.family_events;
 create trigger tracker_apply_event after insert on public.family_events
   for each row execute function public.tracker_apply_event();
 
-revoke all on function public.tracker_find(uuid, jsonb), public.tracker_ensure(uuid, jsonb), public.find_item(jsonb), public.tracker_apply_event(), public.tracker_item_json(public.tracker_items), public.tracker_me(), public.tracker_push(jsonb),
+revoke all on function public.tracker_find(uuid, jsonb), public.tracker_ensure(uuid, jsonb), public.find_item(jsonb), public.track_items(jsonb), public.tracker_apply_event(), public.tracker_item_json(public.tracker_items), public.tracker_me(), public.tracker_push(jsonb),
   public.tracker_pull(timestamptz), public.get_lists(text, boolean), public.get_list_items(text, int, int),
   public.get_watchlist(text, int), public.get_up_next(int), public.get_calendar(int), public.get_history(bigint, int),
   public.get_item_progress(jsonb), public.create_list(text, text, boolean), public.add_to_list(text, jsonb),
@@ -599,7 +666,7 @@ revoke all on function public.tracker_find(uuid, jsonb), public.tracker_ensure(u
 grant execute on function public.tracker_push(jsonb), public.tracker_pull(timestamptz), public.get_lists(text, boolean),
   public.get_list_items(text, int, int), public.get_watchlist(text, int), public.get_up_next(int), public.get_calendar(int),
   public.get_history(bigint, int), public.get_item_progress(jsonb), public.create_list(text, text, boolean),
-  public.add_to_list(text, jsonb), public.set_watchlist(jsonb, boolean), public.find_item(jsonb), public.remove_from_list(text, text), public.rate(text, int),
+  public.add_to_list(text, jsonb), public.set_watchlist(jsonb, boolean), public.find_item(jsonb), public.track_items(jsonb), public.remove_from_list(text, text), public.rate(text, int),
   public.set_profile(text, text, boolean), public.tracker_connections_status(), public.tracker_disconnect(text) to authenticated;
 -- Shared lists and public profiles open without signing in, and only when their owner made them public.
 grant execute on function public.get_public_list(text), public.get_public_profile(text) to anon, authenticated;

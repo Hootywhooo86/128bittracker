@@ -644,7 +644,8 @@ async function renderStats() {
 const kpi = (k, v, s) => `<div class="kpi"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div><div class="s">${esc(s)}</div></div>`;
 
 // One account: the catalogs come built in. Other trackers are only for moving in.
-const ONE_ACCOUNT = `<p class="muted" style="font-size:13px;line-height:1.7;margin:4px 0 6px">One account for everything. Movies, TV, anime, books, comics and games are built in: search, posters, seasons and new episodes all work, with nothing to connect.</p>`;
+const ONE_ACCOUNT = `<p class="muted" style="font-size:13px;line-height:1.7;margin:4px 0 6px">One account for everything. Movies, TV, anime, books, comics and games are built in: search, posters, seasons and new episodes all work, with nothing to connect.</p>
+  <p class="muted" style="font-size:11px;line-height:1.6;margin:0 0 6px">Data from TMDB, TVmaze, AniList, Open Library and IGDB. This product uses the TMDB API but is not endorsed or certified by TMDB.</p>`;
 const MOVING_IN = `<details class="advanced"><summary class="sec">MOVING FROM ANOTHER TRACKER?</summary>
     <p class="muted" style="font-size:13px;line-height:1.6;margin-bottom:10px">Bring your history from Trakt, AniList, MyAnimeList, Letterboxd, Goodreads, Hardcover or Last.fm. Optional: you don't need any of these to use Tracker. (Files work too: Library → Import.)</p>
     <div id="media-accounts"></div></details>`;

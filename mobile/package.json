@@ -20,7 +20,7 @@
     "@capacitor/filesystem": "^7.1.9",
     "@capacitor/local-notifications": "^7.0.7",
     "@capacitor/share": "^7.0.4",
-    "capacitor-health": "^7.1.0",
+    "capacitor-health": "7.0.0",
     "sql.js": "^1.14.2"
   },
   "devDependencies": {

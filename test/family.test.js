@@ -155,3 +155,24 @@ test('pull: watch / listen / read sittings land on the timeline with time and ho
   // Sittings are timeline only: nothing new in the library.
   assert.equal(listItems(ctx, {}).length, 0);
 });
+
+test('steps: Fit and Health Connect fill the Steps tracker once (the higher count wins)', async () => {
+  const { applyHealth } = await import('../src/integrations/health.js');
+  const { toDay } = await import('../src/domain/dates.js');
+  const fam = fakeFamily();
+  const ctx = ctxFor(fam);
+  const steps = createTracker(ctx, { preset: 'steps' });
+  await familySignIn(ctx, { email: 'me@x.com', password: 'hunter22' });
+  fam.add({ id: 'fit-health-today', app: 'fit', type: 'health.day', at: Date.now() - 1000, data: { steps: 4000 } });
+  await familySync(ctx);
+  assert.equal(getTracker(ctx, steps.id).today.total, 4000, 'Fit steps count');
+  // Fit replaces today's event as you walk.
+  fam.feed.find((e) => e.id === 'fit-health-today').data = { steps: 9000 };
+  await familySync(ctx);
+  assert.equal(getTracker(ctx, steps.id).today.total, 9000, 'replaced count catches up');
+  // Health Connect saw the same walk: no double count.
+  applyHealth(ctx, { days: [{ day: toDay(), steps: 7000 }] });
+  assert.equal(getTracker(ctx, steps.id).today.total, 9000);
+  applyHealth(ctx, { days: [{ day: toDay(), steps: 12000 }] });
+  assert.equal(getTracker(ctx, steps.id).today.total, 12000, 'the higher count wins');
+});

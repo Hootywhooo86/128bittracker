@@ -8,6 +8,7 @@
 //
 // Works the same on the server and the phone; only `ctx.fetch` differs.
 import { HttpError } from '../api/errors.js';
+import { applyHealthDay } from './health.js';
 import { ingest } from './index.js';
 import { enrichEpisode } from './enrich.js';
 import { cloudSync, cloudStatus, cloudEnabled, cloudOwner, setProfile } from './cloud.js';
@@ -290,6 +291,8 @@ async function pull(ctx) {
         else if (r.status === 'duplicate') {
           // Family events can be replaced (today's steps go up): keep the latest.
           ctx.db.prepare('UPDATE events SET payload = ?, title = ?, occurred_at = ? WHERE id = ?').run(JSON.stringify(ev.data), ev.title, ev.occurred_at, ev.id);
+          // …and the Steps tracker catches up with the new count.
+          applyHealthDay(ctx, ev);
         }
       } catch (err) {
         console.warn('family: skipped', ev.id, err.message);

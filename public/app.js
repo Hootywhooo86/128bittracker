@@ -142,7 +142,7 @@ async function renderToday() {
     ${trackers.length ? `<div class="cards">${trackers.map(trackerCard).join('')}</div>` : `<div class="empty"><span class="px">NO TRACKERS YET</span>Pick a preset — water, sleep, reading, mood — or make your own.</div>`}
     ${upnext.length ? `<h2 class="sec">UP NEXT</h2><div class="upnext">${upnext.slice(0, 12).map((u) => `<div class="up-card">
         <div class="up-cover">${u.cover_url ? `<img src="${esc(u.cover_url)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span aria-hidden="true">${esc(u.icon)}</span>`}</div>
-        <div class="up-body"><b>${esc(u.title)}</b><span class="muted">S${esc(u.next.season)} E${esc(u.next.number)}${u.progress_total ? ` of ${esc(u.progress_total)}` : ''}</span>
+        <div class="up-body"><b>${esc(u.title)}</b><span class="muted">S${esc(u.next.season)} E${esc(u.next.number)}${u.progress_total ? ` of ${esc(u.progress_total)}` : ''}${u.meta?.now?.episode === u.next.number && u.meta.now.pct ? ` · ${Math.round(u.meta.now.pct)}% in` : ''}</span>
           <button class="btn teal small" data-watched="${u.id}" data-next="${u.next.number}">✓ WATCHED</button></div></div>`).join('')}</div>` : ''}`;
   $('#new-tracker').addEventListener('click', newTrackerModal);
   view.querySelectorAll('[data-watched]').forEach((b) => b.addEventListener('click', guard(async () => {
@@ -405,14 +405,36 @@ async function addToListModal(list) {
   });
 }
 
+// How far through, and where you are right now: meta.pct / meta.now come from
+// 128bitPlay (or the % field); episodes and pages count up from progress.
+const EPISODIC = new Set(['show', 'anime', 'podcast']);
+function progressOf(i) {
+  const m = i.meta ?? {};
+  const now = m.now && typeof m.now === 'object' ? m.now : null;
+  const unit = META.item_types[i.type]?.unit ?? '';
+  const counted = i.progress_total ? (i.progress + (now?.episode === i.progress + 1 ? (now.pct ?? 0) / 100 : 0)) / i.progress_total * 100 : null;
+  let pct = i.status === 'done' ? 100 : EPISODIC.has(i.type) && counted != null ? counted : m.pct != null && Number.isFinite(Number(m.pct)) ? Number(m.pct) : counted;
+  pct = pct == null ? null : Math.max(0, Math.min(100, Math.round(pct)));
+  const parts = [];
+  if (pct != null && i.status !== 'done') parts.push(`${pct}%`);
+  if (i.progress_total && unit && unit !== '%') parts.push(`${fmtNum(i.progress)}/${i.progress_total} ${unit}`);
+  if (i.status !== 'done' && now) {
+    if (now.episode) { if (now.episode > i.progress) parts.push(`E${now.episode} · ${Math.round(now.pct ?? 0)}% in`); }
+    else if (now.chapter) parts.push(`Ch. ${now.chapter}${now.page ? ` · p. ${now.page}${now.pages ? '/' + now.pages : ''}` : ''}`);
+    else if (now.duration_s > 0 && now.position_s != null) parts.push(`${fmtMin(Math.max(0, now.duration_s - now.position_s) / 60)} left`);
+  }
+  return { pct, label: parts.join(' · ') };
+}
+
 function tile(i) {
-  const pct = i.progress_total ? Math.min(100, Math.round((i.progress / i.progress_total) * 100)) : null;
+  const { pct, label } = progressOf(i);
   return `<button class="tile" data-item="${i.id}">
     <div class="cover">${i.cover_url ? `<img src="${esc(i.cover_url)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span aria-hidden="true">${esc(i.icon)}</span>`}
       <span class="status ${i.status}">${STATUS_LABEL[i.status]}</span>${i.trophy_kind ? `<span class="trophy-badge" title="${TROPHY_NAMES[i.trophy_kind]}">${trophySvg(i.trophy_kind, 30)}</span>` : ''}${i.source !== 'manual' ? `<span class="src">${esc(i.source.replace('128bit', ''))}</span>` : ''}</div>
     <div class="tile-body"><div class="tile-title">${esc(i.title)}</div>
       <div class="tile-sub">${esc(i.icon)} ${esc(i.type)}${i.meta?.season ? ' · S' + esc(i.meta.season) : ''}${i.creator ? ' · ' + esc(i.creator) : ''}${i.year ? ' · ' + i.year : ''}</div>
       ${pct != null ? `<div class="mini-bar" title="${pct}%"><span style="width:${pct}%"></span></div>` : ''}
+      ${label && i.status !== 'done' ? `<div class="tile-prog">${esc(label)}</div>` : ''}
       ${i.rating ? `<div class="stars"><span style="font-family:var(--sans)">★</span> ${i.rating}/10</div>` : ''}</div>
   </button>`;
 }
@@ -508,10 +530,12 @@ function itemDetail(i) {
     <div class="chips" role="group" aria-label="Status">${META.statuses.map((s) => `<button class="chip" data-set-status="${s}" aria-pressed="${i.status === s}">${STATUS_LABEL[s].toLowerCase()}</button>`).join('')}</div>
     <div class="field"><label>LISTS</label><div class="chips" id="item-lists"><span class="muted" style="font-size:13px">…</span></div></div>
     <div class="field"><label>RATING</label><div class="rating">${Array.from({ length: 10 }, (_, n) => `<button data-rate="${n + 1}" class="${i.rating && n < i.rating ? 'on' : ''}" aria-label="Rate ${n + 1}">${n + 1}</button>`).join('')}</div></div>
+    ${(() => { const { pct, label } = progressOf(i); return pct != null || label ? `<div class="where"><div class="mini-bar"><span style="width:${pct ?? 0}%"></span></div><span class="muted">${esc(i.status === 'done' ? 'Finished' : label || pct + '%')}</span></div>` : ''; })()}
     <h2 class="sec">LOG A SESSION</h2>
     <form data-session class="grid2">
       <div class="field"><label for="s-min">MINUTES</label><input class="input" id="s-min" name="minutes" type="number" min="0" max="1440" placeholder="45"></div>
       <div class="field"><label for="s-prog">PROGRESS ${unit ? '(' + esc(unit) + ')' : ''}</label><input class="input" id="s-prog" name="progress" type="number" min="0" step="any" placeholder="${esc(i.progress ?? 0)}${i.progress_total ? ' / ' + i.progress_total : ''}"></div>
+      ${i.type === 'game' || EPISODIC.has(i.type) ? '' : `<div class="field"><label for="s-pct">% THROUGH</label><input class="input" id="s-pct" name="pct" type="number" min="0" max="100" step="1" placeholder="${esc(progressOf(i).pct ?? 0)}"></div>`}
       <div class="field" style="grid-column:1/-1"><button class="btn teal">+ LOG SESSION</button></div>
     </form>
     <p class="muted" style="font-size:13px">Total time: <b style="color:var(--ink)">${fmtMin(i.minutes_total)}</b> · Progress: <b style="color:var(--ink)">${fmtNum(i.progress)}${i.progress_total ? ' / ' + i.progress_total : ''}</b></p>
@@ -527,7 +551,8 @@ function itemDetail(i) {
     m.querySelector('[data-session]').addEventListener('submit', guard(async (e) => {
       e.preventDefault();
       const f = formData(e.target);
-      await api('POST', `/items/${i.id}/sessions`, { minutes: f.minutes ? Number(f.minutes) : 0, progress: f.progress === '' ? null : Number(f.progress) });
+      if (f.pct != null && f.pct !== '') await api('PATCH', `/items/${i.id}`, { meta: { pct: Math.max(0, Math.min(100, Number(f.pct))), now: null } });
+      if (f.minutes || (f.progress ?? '') !== '' || !f.pct) await api('POST', `/items/${i.id}/sessions`, { minutes: f.minutes ? Number(f.minutes) : 0, progress: f.progress === '' ? null : Number(f.progress) });
       toast('SESSION LOGGED'); close(); renderLibrary(); itemDetail(await api('GET', `/items/${i.id}`));
     }));
     m.querySelector('[data-review]').addEventListener('submit', guard(async (e) => { e.preventDefault(); await api('PATCH', `/items/${i.id}`, { review: formData(e.target).review }); toast('SAVED'); }));

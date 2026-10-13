@@ -60,6 +60,18 @@ Every item comes back in this shape:
 | `rate` | `item_id`, `rating` (1–10, null to clear) | |
 | `track_items` | `items`: up to 1000 of `{ type, title, creator, year, poster, ids, season?, status, progress, progress_total, started_at, finished_at, meta }` | everything an app knows you read or watched, or are partway through. Only moves forward (progress up, planned → active → done), never deletes, never touches what you dropped or paused → `{ added, updated }` |
 
+**Partway through:** put where you are in `meta` on `track_items` (it replaces
+what was there, so it can go down when you rewatch):
+
+| `meta` key | Meaning |
+|---|---|
+| `pct` | 0–100, how far through the whole thing (a movie, a book, a comic series, a season) |
+| `now` | the part you're in the middle of: `{ pct, episode?, chapter?, page?, pages?, position_s?, duration_s?, at }` |
+
+A movie 42 minutes into 100: `meta: { pct: 42, now: { pct: 42, position_s: 2520, duration_s: 6000, at } }`.
+Season 2, four episodes done and 37% into episode 5 of 10: `progress: 4, progress_total: 10,
+meta: { pct: 44, now: { episode: 5, pct: 37, at } }`. An audiobook: `meta: { pct: 63 }`.
+
 **Watching something:** keep posting `movie.watched` / `episode.watched` to the
 family feed (`log_events`). Tracker applies it to the library straight away,
 even when the Tracker app is closed. Include as much as you know:

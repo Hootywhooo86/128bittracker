@@ -73,6 +73,12 @@ select pg_temp.expect((public.find_item('{"type": "book", "title": "Dune"}') ->>
 select pg_temp.expect(public.find_item('{"type": "comic", "title": "Saga"}') ->> 'status' = 'active', 'status never goes back');
 select public.track_items('[{"type": "book", "title": "Dune", "status": "done"}]');
 select pg_temp.expect((public.find_item('{"type": "book", "title": "Dune"}') ->> 'progress')::numeric = 100, 'finishing fills the progress');
+-- Partway through: where you are (meta.pct / meta.now) updates even when nothing else moved.
+select public.track_items('[{"type": "movie", "title": "Arrival", "ids": {"imdb": "tt2543164"}, "status": "active", "meta": {"pct": 42, "now": {"pct": 42, "position_s": 2520, "duration_s": 6000}}}]');
+select pg_temp.expect((public.find_item('{"ids": {"imdb": "tt2543164"}}') ->> 'pct')::int = 42, 'movie percent saved');
+select public.track_items('[{"type": "movie", "title": "Arrival", "ids": {"imdb": "tt2543164"}, "status": "active", "meta": {"pct": 10, "now": {"pct": 10}}}]');
+select pg_temp.expect((public.find_item('{"ids": {"imdb": "tt2543164"}}') -> 'now' ->> 'pct')::int = 10, 'rewatching moves where you are');
+select pg_temp.expect(public.find_item('{"ids": {"imdb": "tt2543164"}}') ->> 'status' = 'done', 'and it stays watched');
 select pg_temp.expect(jsonb_array_length(public.get_item_progress('{"imdb": "tt11280740"}')) = 2, 'season 2 is its own item');
 select pg_temp.expect(public.find_item('{"ids": {"imdb": "tt2543164"}}') ->> 'title' = 'Arrival', 'a removed watchlist title comes back via a list');
 select pg_temp.expect(jsonb_array_length(public.get_item_progress('{"imdb": "tt11280740"}')) = 2, 'a show in progress isn''t removed');

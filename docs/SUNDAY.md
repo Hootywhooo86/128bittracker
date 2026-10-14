@@ -35,7 +35,10 @@ Requests saved for Sunday's session (nothing here is built yet).
    - Route Google Books and Hardcover through the 128bit Connect Edge Function like TMDB,
      so users never connect anything.
 
-   **API keys to get before Sunday** (free; put them in Supabase → project
+   ✅ **Keys added by Daniel on Oct 14** (`GOOGLE_BOOKS_KEY`, `HARDCOVER_TOKEN`). Sunday: check both
+   respond through the Edge Function before building on them.
+
+   **API keys** (free; they go in Supabase → project
    `wvflpwtaszpstmjpkrhu` → Edge Functions → **Secrets**, same as `TMDB_TOKEN`):
 
    | Secret name | Where to get it |

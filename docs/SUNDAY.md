@@ -79,3 +79,33 @@ Requests saved for Sunday's session (nothing here is built yet).
      Want to Read into the Tracker list, then it can be switched off. (The server-side
      `HARDCOVER_TOKEN` still gives series / release data; that's data only, not your shelf.)
    - Goal: everything ours (Tracker), no outside account needed.
+
+   **Added Oct 14 (details for 7):**
+   - **Two-way:** adding a book to the Tracker **Audiobooks** list puts it in Play's
+     **Wanted**; and every book in Play's Wanted *right now* moves onto the Tracker
+     Audiobooks list (one-time move, then they stay in step).
+   - **Hardcover is killed:** no Hardcover shelf, no Hardcover progress sync, no Hardcover
+     button in the player. (Server-side Hardcover data for series / release dates can stay.)
+
+8. **Ready-made lists for everyone.** The first time anyone opens Tracker (or signs in on
+   a new account), it makes five lists: **Movies**, **Shows**, **Anime**, **Audiobooks**,
+   **Comics**, each with the right kind and already placed on its tab in 128bitPlay
+   (Audiobooks → Wanted, Comics → Comics). Never duplicated if they already exist (match
+   by name + kind, e.g. your own "Amine" / "Audiobooks" lists).
+
+9. **Play's audiobook Library = downloaded books only.**
+   - Library shows only books actually downloaded to the device (Wanted stays the
+     "to get" list; Audiobooks list in Tracker stays the master list).
+   - Only those downloaded books appear on Play's main page **In progress** section, with
+     progress meters (percent, time left), like Continue watching.
+
+10. **Every 128bit app syncs everything when it opens.** Opening Play, Tracker or Fit runs
+    a full sync in the background: pull and push the family feed and the cloud library /
+    progress, so what you did in one app is in the others right away (Fit's steps and
+    workouts in Tracker, Play's progress in Tracker, Tracker's lists in Play, …), and again
+    when the app comes back to the foreground. Needs the same in 128bitFit's repo (not in
+    this session yet).
+
+## Later (not Sunday)
+
+- **Music** in the 128bit family: November.

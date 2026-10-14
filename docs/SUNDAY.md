@@ -2,6 +2,8 @@
 
 Requests saved for Sunday's session (nothing here is built yet).
 
+**Start: Sunday Oct 18, 10:30 AM Edmonton time (America/Edmonton, MDT = UTC−6).**
+
 1. **128bitPlay on Android TV: can't reach the Sign in button with the remote.**
    Settings → Account on the TV: focus goes Email → Password → skips "Sign in" and
    "Create account" → jumps to the SQL setup section. The buttons need to be
@@ -109,6 +111,19 @@ Requests saved for Sunday's session (nothing here is built yet).
     workouts in Tracker, Play's progress in Tracker, Tracker's lists in Play, …), and again
     when the app comes back to the foreground. Needs the same in 128bitFit's repo (not in
     this session yet).
+
+11. **Everything on the phone's own time (Edmonton, America/Edmonton).**
+    Days, "today", calendar dates and timeline times follow the phone's clock and time
+    zone, never UTC. Found Oct 15: some code uses UTC dates
+    (`new Date().toISOString().slice(0, 10)`), which after 6 PM Edmonton time (midnight
+    UTC) already says *tomorrow*:
+    - `src/integrations/calendar.js` (today, episode / anime / game / movie / book dates)
+    - `src/integrations/scrobble.js` (day of a scrobble)
+    - Supabase SQL using `current_date` / `now()::date` (e.g. `get_calendar`, the
+      `tracker_apply_event` trigger): pass the phone's day / time zone instead.
+    - Health Connect `health.day` events (stored as local 23:59, check the day boundary).
+    - Check Play too (session times, Continue / Up next, stats days).
+    Test with the phone set to Edmonton at 7 PM and at 11:30 PM.
 
 ## Later (not Sunday)
 

@@ -93,11 +93,15 @@ Requests saved for Sunday's session (nothing here is built yet).
    (Audiobooks → Wanted, Comics → Comics). Never duplicated if they already exist (match
    by name + kind, e.g. your own "Amine" / "Audiobooks" lists).
 
-9. **Play's audiobook Library = downloaded books only.**
-   - Library shows only books actually downloaded to the device (Wanted stays the
-     "to get" list; Audiobooks list in Tracker stays the master list).
-   - Only those downloaded books appear on Play's main page **In progress** section, with
-     progress meters (percent, time left), like Continue watching.
+9. **Play's Audiobooks tab only (not movies / shows): Library = books you have.**
+   (Clarified Oct 15 with a screenshot of Audiobooks → Library / Downloads / Wanted.)
+   - **Library**: the audiobooks you actually have (sent to TorBox or downloaded), each
+     with its progress bar and %, keeping the All / Favorites / In progress / Finished
+     filters. The **In progress** filter is the "main page in progress" with meters.
+   - **Wanted** = the Tracker **Audiobooks** list (item 7): books you want but don't have.
+   - When a Wanted book is grabbed (sent to TorBox), it **moves from Wanted to Library**,
+     and in Tracker goes from planned to listening.
+   - **Downloads** stays as is (copies saved on the phone for offline).
 
 10. **Every 128bit app syncs everything when it opens.** Opening Play, Tracker or Fit runs
     a full sync in the background: pull and push the family feed and the cloud library /

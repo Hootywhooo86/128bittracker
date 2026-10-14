@@ -10,7 +10,7 @@ Requests saved for Sunday's session (nothing here is built yet).
    focusable (D-pad) on TV. Workaround today: "Sign in with your phone" (QR / code
    on the TV, phone → Settings → Account → Sign in a TV).
 
-2. **Listening / watching sessions must add up to the real time.**
+2. **⭐ TOP PRIORITY: Listening / watching sessions must add up to the real time.**
    Example (Oct 14): "🎧 Masquerade · 7 min · 3%", 3:10–4:05 PM, while the player sat at
    59:41. Time is counted from the app's ticks, which stop when the screen is off or the
    app is in the background, so long listens undercount; the start/stop positions weren't
@@ -20,6 +20,17 @@ Requests saved for Sunday's session (nothing here is built yet).
    - Write a checkpoint about once an hour during long sittings, so nothing is lost if the
      app is closed, and the total listened time in Play's stats matches the sessions.
    - Check audiobooks across chapters and with the screen off.
+   - **Full review of audiobook listening sessions (asked again Oct 15):** go through the
+     whole path end to end and test it on the phone, not just in code:
+     - Play `lib/player.tsx` (listening ticks, pause, chapter change, book finished),
+       `lib/sessions.ts` (start / end, 10-minute idle split, under-a-minute drop),
+       `lib/family.ts` (queue + send), then Tracker's timeline line.
+     - Screen off / app in background / phone locked; switching books; seeking; speed
+       above 1×; sleep timer; streaming from TorBox vs downloaded.
+     - Positions on the line ("Ch 1 59:41 → …") must always show; the Oct 14 Masquerade
+       line had none.
+     - One sitting = one line (no splits every few minutes, no lost sittings), and the
+       session minutes for a day add up to Play's "time listened" stat.
 
 3. **Steps every 3 hours.** Read Health Connect (and take Fit's count) every 3 hours, also
    when Tracker isn't open: a background job (Android WorkManager / background task) plus

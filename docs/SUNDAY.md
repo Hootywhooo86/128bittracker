@@ -61,3 +61,21 @@ Requests saved for Sunday's session (nothing here is built yet).
      orange (#ff9f1c), e.g. #f97316.
    - Finishing an audiobook earns a **golden CD with a book on the cover** (new trophy
      beside the golden VHS / TV / idol / controller), on the timeline and in Stats.
+
+7. **Audiobooks: Tracker replaces Hardcover in 128bitPlay's Wanted flow.**
+   You made an **Audiobooks** list in Tracker. That list becomes the source of what you
+   want to listen to, instead of Hardcover's "Want to Read".
+   - Today in Play: find a book → it goes to Hardcover (Want to Read) → Play's **Wanted**
+     list (`lib/wanted.ts`, `importHardcoverWanted`) looks for it on AudiobookBay / your
+     sources → one tap sends it to TorBox. Progress also syncs back to Hardcover
+     (`lib/hardcover.ts`).
+   - Sunday: Wanted reads (and adds to) the Tracker **Audiobooks** list: adding a book in
+     Play or Tracker puts it on that list; Play finds a release and sends it to TorBox as
+     now; listening progress and "finished" go to Tracker (already does) instead of
+     Hardcover.
+   - Everything audiobook-related lands on that list automatically (Play's history sync
+     and "Add to Tracker" on audiobooks).
+   - Hardcover becomes optional: keep it only as a one-time import of your current
+     Want to Read into the Tracker list, then it can be switched off. (The server-side
+     `HARDCOVER_TOKEN` still gives series / release data; that's data only, not your shelf.)
+   - Goal: everything ours (Tracker), no outside account needed.

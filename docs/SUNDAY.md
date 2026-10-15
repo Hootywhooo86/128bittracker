@@ -146,6 +146,20 @@ Requests saved for Sunday's session (nothing here is built yet).
     and `styles.body` (`marginTop: -80` pulls the info up over the image). Check phone and
     TV, movies and shows.
 
+13. **Anime search finds too little (Play), so titles can't be found to add to lists.**
+    (Screenshot Oct 15: Play → Anime → search "fate" shows only 4, all from the "Anime
+    Kitsu" addon: Fate/Zero, Fate/Zero 2nd Season, Fate/stay night, Fate/Prototype.)
+    Kitsu's own API returns 20+ for "fate" (Unlimited Blade Works, Heaven's Feel I–III,
+    Apocrypha, Grand Order, Prisma☆Illya, Extra: Last Encore…). Play shows whatever the
+    addon returns (`components/video-browse.tsx` → `fetchMetas` in `lib/addons.ts`), so
+    the addon's search is the limit.
+    - Search anime straight from Kitsu and/or AniList as well (no key), merged with the
+      addon results, with "more" paging; same ids (`kitsu:…`) so title pages, streams and
+      Add to Tracker / Lists keep working.
+    - Same in Tracker's own Add → Anime search (AniList), so anything can go on the
+      Anime list from either app.
+    - Check that every search result's title page has **Add to Tracker / Lists**.
+
 ## Later (not Sunday)
 
 - **Music** in the 128bit family: November.

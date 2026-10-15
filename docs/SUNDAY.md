@@ -136,6 +136,16 @@ Requests saved for Sunday's session (nothing here is built yet).
     - Check Play too (session times, Continue / Up next, stats days).
     Test with the phone set to Edmonton at 7 PM and at 11:30 PM.
 
+12. **Play title page: show the whole backdrop image at the top.**
+    (Screenshot Oct 15, *As a Reincarnated Aristocrat…*.) The backdrop starts halfway
+    down, under an empty black header, and the poster + title sit on top of it, so most of
+    the picture is hidden. Bring the image up to the top of the screen and let it show in
+    full (taller banner behind the status bar / back button), with the poster, title and
+    year below or along its bottom edge instead of covering it.
+    Code: 128bit-MTAB `app/src/app/title.tsx` — `styles.hero` (height 240), `heroShade`,
+    and `styles.body` (`marginTop: -80` pulls the info up over the image). Check phone and
+    TV, movies and shows.
+
 ## Later (not Sunday)
 
 - **Music** in the 128bit family: November.

@@ -160,7 +160,7 @@ Requests saved for Sunday's session (nothing here is built yet).
       Anime list from either app.
     - Check that every search result's title page has **Add to Tracker / Lists**.
 
-14. **Play's "Add to a Tracker list" says "No lists yet" when you have lists.**
+14. ✅ **DONE Oct 16 (Play PR #11, build after merge): Play's "Add to a Tracker list" said "No lists yet" when you have lists.** Sunday: just confirm on the phone.
     (Screenshot Oct 16, *Mushoku no Eiyuu*.) Cause: the Lists popup
     (`app/src/components/tracker-actions.tsx` → `getTrackerLists(kind)`) asks for
     `get_lists(kind, play_only: true)`, so it only shows lists of that exact kind with

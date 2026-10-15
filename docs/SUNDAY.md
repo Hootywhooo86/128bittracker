@@ -160,6 +160,16 @@ Requests saved for Sunday's session (nothing here is built yet).
       Anime list from either app.
     - Check that every search result's title page has **Add to Tracker / Lists**.
 
+14. **Play's "Add to a Tracker list" says "No lists yet" when you have lists.**
+    (Screenshot Oct 16, *Mushoku no Eiyuu*.) Cause: the Lists popup
+    (`app/src/components/tracker-actions.tsx` → `getTrackerLists(kind)`) asks for
+    `get_lists(kind, play_only: true)`, so it only shows lists of that exact kind with
+    "Show in 128bitPlay" on. Since "Where your lists go" (Play PR #8) that switch no longer
+    decides anything, so lists made in Tracker don't appear.
+    - Show **all** your lists in the popup (`getAllTrackerLists`), the page's kind first,
+      then the rest; "New list" stays at the bottom.
+    - Small, one-file fix; can be done before Sunday if wanted.
+
 ## Later (not Sunday)
 
 - **Music** in the 128bit family: November.

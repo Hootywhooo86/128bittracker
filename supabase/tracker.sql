@@ -299,14 +299,28 @@ language sql stable security definer set search_path = public as $$
            order by t.updated_at desc limit least(max_rows, 200)) i
 $$;
 
-create or replace function public.get_calendar(days int default 30) returns jsonb
+-- "Today" where the person is (an IANA zone like America/Edmonton from the phone), not UTC.
+create or replace function public.tracker_today(tz text default null) returns date
+language plpgsql stable set search_path = public as $$
+begin
+  return (now() at time zone coalesce(nullif(tz, ''), 'UTC'))::date;
+exception when others then return current_date;
+end $$;
+
+-- Same, from the person's own day: tz is the phone's IANA zone (e.g. America/Edmonton).
+create or replace function public.get_calendar_local(days int default 30, tz text default null) returns jsonb
 language sql stable security definer set search_path = public as $$
   select coalesce(jsonb_agg(jsonb_build_object('date', c.day, 'kind', c.kind, 'title', c.title, 'detail', c.detail,
            'item', case when i.id is null then null else tracker_item_json(i) end) || c.data order by c.day, c.title), '[]')
     from tracker_calendar c
     left join tracker_items i on i.user_id = c.user_id and i.id = c.item_id
-   where c.user_id = tracker_me() and c.day between current_date and current_date + least(greatest(days, 1), 366)
+   where c.user_id = tracker_me()
+     and c.day between tracker_today(tz) and tracker_today(tz) + least(greatest(days, 1), 366)
 $$;
+
+create or replace function public.get_calendar(days int default 30) returns jsonb
+language sql stable security definer set search_path = public as $$ select public.get_calendar_local(days, null) $$;
+
 
 -- Watched / read / finished, newest first, from every 128bit app.
 create or replace function public.get_history(before_ms bigint default null, max_rows int default 100) returns jsonb
@@ -339,6 +353,48 @@ begin
   values (me, lid, left(trim(name), 120), left(coalesce(kind, 'mixed'), 24), coalesce(show_in_play, true),
           coalesce((select max(position) + 1 from tracker_lists where user_id = me), 0));
   return jsonb_build_object('id', lid);
+end $$;
+
+-- Everyone's five lists: Movies, Shows, Anime, Audiobooks, Comics. Reuses a list you already
+-- have (by name, e.g. "Amine" or "Audiobboks", else by kind) and fixes its kind; makes the
+-- missing ones. Returns their ids: {movie, show, anime, audiobooks, comic}. Safe to call often.
+create or replace function public.starter_lists() returns jsonb
+language plpgsql security definer set search_path = public as $$
+#variable_conflict use_column
+declare
+  me uuid := tracker_me();
+  t record;
+  lid text;
+  out jsonb := '{}';
+begin
+  for t in select * from (values
+      ('movie', 'movie', 'Movies', '^(movie|film)'),
+      ('show', 'show', 'Shows', '(show|tv|series)'),
+      ('anime', 'anime', 'Anime', '(anim|amine)'),
+      ('audiobooks', 'book', 'Audiobooks', '(audio|book)'),
+      ('comic', 'comic', 'Comics', '(comic|manga|manhwa)')) v(key, kind, name, pat)
+  loop
+    lid := null;
+    -- by name first (also when its kind is off), then any list of that kind
+    select id into lid from tracker_lists
+     where user_id = me and not deleted and lower(name) ~ t.pat
+       and not (t.key = 'show' and lower(name) ~ '(anim|amine)')
+     order by (kind = t.kind) desc, position limit 1;
+    if lid is null then
+      select id into lid from tracker_lists where user_id = me and not deleted and kind = t.kind
+       and not (t.key = 'show' and lower(name) ~ '(anim|amine)') order by position limit 1;
+    end if;
+    if lid is null then
+      lid := 'l-' || replace(gen_random_uuid()::text, '-', '');
+      insert into tracker_lists (user_id, id, name, kind, show_in_play, position)
+      values (me, lid, t.name, t.kind, true, coalesce((select max(position) + 1 from tracker_lists where user_id = me), 0));
+    else
+      update tracker_lists set kind = t.kind, show_in_play = true, updated_at = now(), synced_at = now()
+       where user_id = me and id = lid and (kind <> t.kind or not show_in_play);
+    end if;
+    out := out || jsonb_build_object(t.key, lid);
+  end loop;
+  return out;
 end $$;
 
 -- item: an existing item id, or a title from another app: {type, title, year, poster, ids: {tmdb, imdb, ...}}.
@@ -696,13 +752,13 @@ create trigger tracker_apply_event after insert on public.family_events
 
 revoke all on function public.tracker_find(uuid, jsonb), public.tracker_ensure(uuid, jsonb), public.find_item(jsonb), public.track_items(jsonb), public.set_progress(jsonb), public.get_in_progress(int), public.tracker_ts(text), public.tracker_num(jsonb), public.tracker_apply_event(), public.tracker_item_json(public.tracker_items), public.tracker_me(), public.tracker_push(jsonb),
   public.tracker_pull(timestamptz), public.get_lists(text, boolean), public.get_list_items(text, int, int),
-  public.get_watchlist(text, int), public.get_up_next(int), public.get_calendar(int), public.get_history(bigint, int),
+  public.get_watchlist(text, int), public.get_up_next(int), public.get_calendar(int), public.get_calendar_local(int, text), public.starter_lists(), public.get_history(bigint, int),
   public.get_item_progress(jsonb), public.create_list(text, text, boolean), public.add_to_list(text, jsonb),
   public.set_watchlist(jsonb, boolean), public.remove_from_list(text, text), public.rate(text, int), public.set_profile(text, text, boolean),
   public.get_public_list(text), public.get_public_profile(text), public.tracker_connections_status(),
   public.tracker_disconnect(text) from public, anon, authenticated;
 grant execute on function public.tracker_push(jsonb), public.tracker_pull(timestamptz), public.get_lists(text, boolean),
-  public.get_list_items(text, int, int), public.get_watchlist(text, int), public.get_up_next(int), public.get_calendar(int),
+  public.get_list_items(text, int, int), public.get_watchlist(text, int), public.get_up_next(int), public.get_calendar(int), public.get_calendar_local(int, text), public.starter_lists(),
   public.get_history(bigint, int), public.get_item_progress(jsonb), public.create_list(text, text, boolean),
   public.add_to_list(text, jsonb), public.set_watchlist(jsonb, boolean), public.find_item(jsonb), public.track_items(jsonb), public.set_progress(jsonb), public.get_in_progress(int), public.remove_from_list(text, text), public.rate(text, int),
   public.set_profile(text, text, boolean), public.tracker_connections_status(), public.tracker_disconnect(text) to authenticated;

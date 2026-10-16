@@ -156,7 +156,7 @@ The Android app uses these endpoints. Other apps don't need them.
 
 | Method | Path | |
 |---|---|---|
-| GET | `/search?type=book&q=dune` | title search; results carry `cover_url`, `year`, `creator`, `progress_total`, `meta` to pass when creating the item |
+| GET | `/search?type=book&q=dune` | title search; results carry `cover_url`, `year`, `creator`, `progress_total`, `meta` to pass when creating the item. `type=audiobook` searches Audible first (then Google Books / Open Library); save those as `type: book` with their `meta` (`format: audiobook`, `narrator`, `runtime_min`, `asin`, `series`) |
 | GET | `/search/seasons?provider=tvmaze&id=44933` | a show's seasons with episode counts |
 | POST | `/imports` | `{ text, filename }`: a Goodreads / StoryGraph / Letterboxd CSV or MyAnimeList XML → `{ format, added, updated, trophies }` |
 | GET | `/calendar` | coming up: `[{ kind: episode\|release, date, title, detail, item_id }]` (`?refresh=1` skips the 6 h cache) |

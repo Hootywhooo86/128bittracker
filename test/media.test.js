@@ -98,7 +98,7 @@ test('trakt: movies, per-season shows (anime → idol), ratings, watchlist', asy
   const s2 = findByExternal(ctx, 'trakt', 'show:10:s2');
   assert.deepEqual([s2.status, s2.progress, s2.progress_total], ['active', 1, 10]);
   assert.equal(findByExternal(ctx, 'trakt', 'show:20:s1').type, 'anime');
-  assert.deepEqual(trophyCounts(ctx), { controller: 0, vhs: 1, tv: 1, anime: 1 });
+  assert.deepEqual(trophyCounts(ctx), { controller: 0, vhs: 1, tv: 1, anime: 1, cd: 0 });
 
   // Season counts are cached: an ended show isn't looked up again.
   await syncConnector(ctx, 'trakt');
@@ -250,7 +250,7 @@ test('scrobble: Plex multipart, Jellyfin and generic JSON; anime is detected; ke
     assert.deepEqual([anime.title, anime.progress, anime.progress_total, anime.status], ['Frieren', 2, 2, 'done']);
     const show = listItems(ctx, { type: 'show' })[0];
     assert.deepEqual([show.title, show.progress, show.progress_total, show.status], ['Severance', 1, 9, 'active']);
-    assert.deepEqual(trophyCounts(ctx), { controller: 0, vhs: 1, tv: 0, anime: 1 });
+    assert.deepEqual(trophyCounts(ctx), { controller: 0, vhs: 1, tv: 0, anime: 1, cd: 0 });
     assert.equal(db.prepare("SELECT source FROM events WHERE type = 'movie.watched'").get().source, 'plex');
   } finally {
     app.server.close();

@@ -15,6 +15,7 @@ import * as family from '../integrations/family-account.js';
 import { upcoming } from '../integrations/calendar.js';
 import * as hub from '../integrations/hub.js';
 import * as health from '../integrations/health.js';
+import { localStarterLists } from '../integrations/starter-lists.js';
 
 export const API_VERSION = '1';
 
@@ -38,6 +39,9 @@ export function metaInfo() {
 
 export function addCoreRoutes(r, ctx) {
   const { db } = ctx;
+  // First run, not signed in: Movies, Shows, Anime, Audiobooks, Comics lists (once).
+  // Signed in, the cloud library makes them on the first sync (cloud.js).
+  try { localStarterLists(ctx, { signedIn: family.familySignedIn(ctx) }); } catch (err) { console.warn('starter lists:', err.message); }
 
   // --- habit trackers ---------------------------------------------------------
   r.get('/api/v1/trackers', 'read', ({ query }) => trackers.listTrackers(ctx, { includeArchived: query.archived === 'true' }));

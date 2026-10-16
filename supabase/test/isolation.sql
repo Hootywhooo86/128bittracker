@@ -93,6 +93,15 @@ select pg_temp.expect(jsonb_array_length(public.get_item_progress('{"imdb": "tt1
 select pg_temp.expect(public.find_item('{"ids": {"imdb": "tt2543164"}}') ->> 'title' = 'Arrival', 'a removed watchlist title comes back via a list');
 select pg_temp.expect(jsonb_array_length(public.get_item_progress('{"imdb": "tt11280740"}')) = 2, 'a show in progress isn''t removed');
 
+-- Starter lists: reuse what's there (fixing a mis-kinded "Amine"), make the rest, never twice.
+select public.create_list('Amine', 'show', true);
+select public.create_list('Audiobboks', 'book', false);
+select pg_temp.expect((select count(*) from jsonb_object_keys(public.starter_lists())) = 5, 'five starter lists');
+select pg_temp.expect(public.starter_lists() = public.starter_lists(), 'same ids every time');
+select pg_temp.expect((select l ->> 'kind' from jsonb_array_elements(public.get_lists()) l where l ->> 'name' = 'Amine') = 'anime', 'Amine is an anime list now');
+select pg_temp.expect((select count(*) from jsonb_array_elements(public.get_lists()) l where l ->> 'kind' = 'book') = 1, 'Audiobboks reused, no second audiobook list');
+select pg_temp.expect(public.tracker_today('America/Edmonton') is not null and public.tracker_today('Not/AZone') = current_date, 'today in a time zone');
+
 -- Direct table access finds nothing, even for the owner (functions only).
 select pg_temp.expect((select count(*) from public.tracker_items) = 0, 'RLS hides tables');
 do $$ begin

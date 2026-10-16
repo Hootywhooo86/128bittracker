@@ -183,7 +183,8 @@ export function createHandler({ env, fetch }: Deps) {
     const used = await rest('rpc/tracker_bump_usage', { method: 'POST', body: JSON.stringify({ who: userId, svc: service }) });
     if (Number(used) > DAILY_LIMIT) return fail(429, `daily ${service} limit reached, try again tomorrow`);
     const method = String(body.method ?? 'GET').toUpperCase();
-    if (method !== 'GET' && !(method === 'POST' && service === 'igdb')) return fail(400, 'lookups are read-only');
+    const postOk = service === 'igdb' || (service === 'hardcover' && !/\bmutation\b/i.test(String(body.body ?? '')));
+    if (method !== 'GET' && !(method === 'POST' && postOk)) return fail(400, 'lookups are read-only');
     let reqd;
     try {
       reqd = keyedRequest(service, env, String(body.url ?? ''), service === 'igdb' ? await igdbToken() : undefined);

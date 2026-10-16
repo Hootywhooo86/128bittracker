@@ -4,6 +4,7 @@
 //   movie  finished                                        → golden VHS
 //   show   season finished                                 → golden TV with antenna
 //   anime  series finished                                 → golden anime girl
+//   book   audiobook (meta.format 'audiobook') finished     → golden CD with a book on its cover
 //
 // One trophy per item. Once earned it stays on the shelf, even if the item
 // is later reopened: you did it.
@@ -13,6 +14,7 @@ export const TROPHIES = {
   vhs:        { name: 'Golden VHS',        for: 'finish a movie' },
   tv:         { name: 'Golden TV',         for: 'finish a show season' },
   anime:      { name: 'Golden Idol',       for: 'finish an anime series' },
+  cd:         { name: 'Golden CD',         for: 'finish an audiobook' },
 };
 
 /** Is a game 100%? From synced achievements, or the player's own "100%" mark. */
@@ -29,6 +31,7 @@ export function trophyFor(item) {
     case 'movie': return item.status === 'done' ? 'vhs' : null;
     case 'show':  return item.status === 'done' ? 'tv' : null;
     case 'anime': return item.status === 'done' ? 'anime' : null;
+    case 'book':  return item.status === 'done' && item.meta?.format === 'audiobook' ? 'cd' : null;
     default:      return null;
   }
 }

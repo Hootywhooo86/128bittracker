@@ -81,7 +81,7 @@ npm test
   finished things back to the family feed.
 - **Golden trophies**: 100% a game → golden controller, finish a movie →
   golden VHS, finish a show season → golden TV, finish an anime series →
-  golden idol. Trophy shelf on Stats.
+  golden idol, finish an audiobook → golden CD. Trophy shelf on Stats.
 - **Game platforms**: Steam (official API), Xbox (OpenXBL), PlayStation
   (unofficial, opt-in) and RetroAchievements bring in play time, achievements
   and 100%s.

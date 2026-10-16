@@ -16,7 +16,8 @@
 //
 // Media events 128bitPlay posts to the family feed (docs/EVENTS.md). These are
 // also accepted from any other source (Plex, Jellyfin, Emby, scripts):
-//   book.finished   { title, author? }          → book (done)
+//   book.finished   { title, author? }          → book (done); from 128bitPlay an
+//                   audiobook (meta.format) → golden CD
 //   movie.watched   { title }                   → movie (done → golden VHS)
 //   episode.watched { show, episode: "S2 E3 · Name" } → that season's item; the
 //                   last episode of the season finishes it (→ golden TV). With
@@ -92,8 +93,10 @@ export function applyPlayEvent(ctx, ev) {
     }
     case 'book.finished': {
       if (!d.title) return [];
-      const item = upsertMedia(ctx, `book:${key(d.title)}|${key(d.author)}`, { type: 'book', title: d.title, creator: d.author ?? null });
-      return [{ item_id: updateItem(ctx, item.id, { status: 'done' }).id }];
+      // 128bitPlay's books are audiobooks: finishing one earns the golden CD.
+      const audio = ev.source === '128bitplay' || d.format === 'audiobook';
+      const item = upsertMedia(ctx, `book:${key(d.title)}|${key(d.author)}`, { type: 'book', title: d.title, creator: d.author ?? null, ...(audio ? { meta: { format: 'audiobook' } } : {}) });
+      return [{ item_id: updateItem(ctx, item.id, { status: 'done', ...(audio ? { meta: { format: 'audiobook' } } : {}) }).id }];
     }
     case 'movie.watched': {
       if (!d.title) return [];

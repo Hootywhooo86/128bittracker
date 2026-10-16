@@ -232,7 +232,7 @@ test('golden trophies: one per finished movie / show season / anime, 100% games'
   assert.equal(s2.meta.season, 2);
 
   const { body: shelf } = await call('GET', '/api/v1/trophies');
-  assert.deepEqual(shelf.counts, { controller: 2, vhs: 1, tv: 1, anime: 1 });
+  assert.deepEqual(shelf.counts, { controller: 2, vhs: 1, tv: 1, anime: 1, cd: 0 });
   const { body: evs } = await call('GET', '/api/v1/events?type=trophy.earned');
   assert.equal(evs.length, 5);
 

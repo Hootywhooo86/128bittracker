@@ -1,6 +1,7 @@
 // deno test supabase/functions/connect/
-import { assert, assertEquals, assertMatch } from 'jsr:@std/assert@1';
+import { assert, assertEquals, assertMatch, assertThrows } from 'jsr:@std/assert@1';
 import { createHandler } from './handler.ts';
+import { keyedRequest } from './services.ts';
 
 const SB = 'https://proj.supabase.co';
 const ENV: Record<string, string> = {
@@ -120,4 +121,14 @@ Deno.test('lookups with 128bit keys: right host only, keys added, counted per pe
   assertEquals((await w.post('/key', { service: 'tmdb', url: 'https://api.themoviedb.org/3/x', method: 'DELETE' })).status, 400);
   assertEquals((await w.post('/key', { service: 'lastfm', url: 'https://ws.audioscrobbler.com/2.0/' })).status, 503, 'not set up yet');
   assertEquals(w.db.usage, 4);
+});
+
+Deno.test('keyed books: Google Books gets the key, Hardcover the token, mutations refused', () => {
+  const env = (k: string) => ({ GOOGLE_BOOKS_KEY: 'gk', HARDCOVER_TOKEN: 'Bearer hc' } as Record<string, string>)[k];
+  const g = keyedRequest('gbooks', env, 'https://www.googleapis.com/books/v1/volumes?q=dune&key=theirs');
+  assertEquals(new URL(g.url).searchParams.get('key'), 'gk');
+  assertThrows(() => keyedRequest('gbooks', env, 'https://www.googleapis.com/drive/v3/files'));
+  const h = keyedRequest('hardcover', env, 'https://api.hardcover.app/v1/graphql');
+  assertEquals(h.headers.Authorization, 'Bearer hc');
+  assertThrows(() => keyedRequest('hardcover', env, 'https://api.hardcover.app/other'));
 });

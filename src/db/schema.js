@@ -167,6 +167,12 @@ export const MIGRATIONS = [
     PRIMARY KEY (kind, uid)
   );
   `,
+  // 6 — books that came from Hardcover were 128bitPlay's audiobooks (Play kept
+  // Hardcover in step): mark them audiobooks so they sit with the rest.
+  `
+  UPDATE items SET meta = json_set(meta, '$.format', 'audiobook'), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+   WHERE type = 'book' AND source = 'hardcover' AND json_extract(meta, '$.format') IS NULL;
+  `,
 ];
 
 export function migrate(db) {

@@ -30,6 +30,8 @@ function keylessService(url, headers) {
     case 'api.igdb.com': return !headers.get('client-id') ? 'igdb' : null;
     case 'api.trakt.tv': return !headers.get('trakt-api-key') ? 'trakt' : null;
     case 'api.myanimelist.net': return !headers.get('x-mal-client-id') ? 'mal' : null;
+    case 'www.googleapis.com': return url.pathname.startsWith('/books/') && !q.get('key') ? 'gbooks' : null;
+    case 'api.hardcover.app': return !headers.get('authorization') ? 'hardcover' : null;
     default: return null;
   }
 }

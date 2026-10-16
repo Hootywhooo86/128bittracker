@@ -50,6 +50,9 @@ export const KEYED = {
   trakt: { host: 'api.trakt.tv', env: ['TRAKT_CLIENT_ID'] },
   mal: { host: 'api.myanimelist.net', env: ['MAL_CLIENT_ID'] },
   retroachievements: { host: 'retroachievements.org', env: ['RA_API_KEY'] },
+  // Books: Google Books (volumes search, release dates) and Hardcover (series, upcoming; GraphQL).
+  gbooks: { host: 'www.googleapis.com', env: ['GOOGLE_BOOKS_KEY'] },
+  hardcover: { host: 'api.hardcover.app', env: ['HARDCOVER_TOKEN'] },
 } as const;
 export type KeyedService = keyof typeof KEYED;
 
@@ -125,6 +128,14 @@ export function keyedRequest(service: KeyedService, env: Env, rawUrl: string, ig
     case 'steam': url.searchParams.set('key', env('STEAM_API_KEY') ?? ''); break;
     case 'lastfm': url.searchParams.set('api_key', env('LASTFM_API_KEY') ?? ''); break;
     case 'retroachievements': url.searchParams.set('y', env('RA_API_KEY') ?? ''); break;
+    case 'gbooks':
+      if (!url.pathname.startsWith('/books/')) throw new Error('gbooks lookups only go to /books/');
+      url.searchParams.set('key', env('GOOGLE_BOOKS_KEY') ?? '');
+      break;
+    case 'hardcover':
+      if (url.pathname !== '/v1/graphql') throw new Error('hardcover lookups only go to /v1/graphql');
+      Object.assign(headers, { Authorization: `Bearer ${(env('HARDCOVER_TOKEN') ?? '').replace(/^Bearer\s+/i, '')}`, 'Content-Type': 'application/json' });
+      break;
     case 'trakt': Object.assign(headers, { 'trakt-api-version': '2', 'trakt-api-key': env('TRAKT_CLIENT_ID') ?? '', 'Content-Type': 'application/json' }); break;
     case 'mal': headers['X-MAL-CLIENT-ID'] = env('MAL_CLIENT_ID') ?? ''; break;
     case 'igdb': Object.assign(headers, { 'Client-ID': env('TWITCH_CLIENT_ID') ?? '', Authorization: `Bearer ${igdbToken ?? ''}`, 'Content-Type': 'text/plain' }); break;

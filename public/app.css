@@ -141,11 +141,14 @@ textarea.input{min-height:90px;resize:vertical}
 .kpi .v{font-family:var(--px);font-size:20px;color:var(--orange);margin:10px 0 6px}
 .kpi .k{font-family:var(--px);font-size:7px;color:var(--muted);letter-spacing:1px;line-height:1.6}
 .kpi .s{font-size:12px;color:var(--muted)}
-.pixels-wrap{overflow-x:auto;padding-bottom:6px}
-.pixels{display:grid;grid-auto-flow:column;grid-template-rows:repeat(7,12px);grid-auto-columns:12px;gap:3px;width:max-content}
-.pixels i{background:var(--panel-2)}
+/* The whole year fits the screen: 53 week columns sharing the width. */
+.pixels{display:grid;grid-auto-flow:column;grid-template-rows:repeat(7,auto);grid-auto-columns:1fr;gap:2px;width:100%}
+.pixels i{background:var(--panel-2);aspect-ratio:1;border-radius:1px;cursor:pointer}
+.pixels i.sel{outline:2px solid #fff;outline-offset:0}
+.px-day{font-size:13px;margin:8px 0 0;line-height:1.6}
 .pixels i.l1{background:#134e48}.pixels i.l2{background:#1f8a7d}.pixels i.l3{background:var(--teal)}.pixels i.l4{background:var(--orange)}
-.legend{display:flex;gap:6px;align-items:center;font-size:12px;color:var(--muted);margin-top:10px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;font-size:12px;color:var(--muted);margin-top:10px}
+.legend span{display:inline-flex;align-items:center;gap:5px}
 .legend i{width:12px;height:12px;display:inline-block}
 table.lib-stats{width:100%;border-collapse:collapse;font-size:14px}
 table.lib-stats th,table.lib-stats td{padding:10px 8px;border-bottom:2px solid var(--line);text-align:left}

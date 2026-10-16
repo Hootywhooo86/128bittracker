@@ -168,8 +168,8 @@ function mediaCard(i, sub, actions = '', pct = null) {
 // One colour per kind, everywhere: calendar dots, Continue, the timeline. Changed in
 // settings (🎨 COLOURS) and kept on this device.
 // Books are brown; audiobooks (books with format audiobook, Play's listening) orange.
-const DEFAULT_COLORS = { show: '#facc15', anime: '#f472b6', movie: '#a855f7', audiobook: '#f97316', book: '#a0522d', game: '#2dd4bf', accent: '#2dd4bf', heading: '#ff9f1c', background: '#0b0b16' };
-const COLOR_LABEL = { show: 'TV shows', anime: 'Anime', movie: 'Movies', audiobook: 'Audiobooks', book: 'Books', game: 'Games', accent: 'Buttons & highlights', heading: 'Headings & main buttons', background: 'Background' };
+const DEFAULT_COLORS = { show: '#facc15', anime: '#f472b6', movie: '#a855f7', audiobook: '#f97316', book: '#a0522d', comic: '#ef4444', game: '#2dd4bf', accent: '#2dd4bf', heading: '#ff9f1c', background: '#0b0b16' };
+const COLOR_LABEL = { show: 'TV shows', anime: 'Anime', movie: 'Movies', audiobook: 'Audiobooks', book: 'Books', comic: 'Comics', game: 'Games', accent: 'Buttons & highlights', heading: 'Headings & main buttons', background: 'Background' };
 const KIND_COLOR = { ...DEFAULT_COLORS };
 try { Object.assign(KIND_COLOR, JSON.parse(localStorage.getItem('tracker.colors') || '{}')); } catch { /* no storage */ }
 const shade = (hex, f) => '#' + [1, 3, 5].map((i) => Math.round(parseInt(hex.slice(i, i + 2), 16) * f).toString(16).padStart(2, '0')).join('');
@@ -194,7 +194,7 @@ function renderColors(el) {
   el.querySelectorAll('[data-color]').forEach((i) => i.addEventListener('input', () => saveColors({ [i.dataset.color]: i.value })));
   el.querySelector('#colors-reset').addEventListener('click', () => { saveColors({ ...DEFAULT_COLORS }); renderColors(el); toast('COLOURS RESET'); });
 }
-const KIND_NAME = { show: 'TV', anime: 'Anime', movie: 'Movies', audiobook: 'Audiobooks', book: 'Books', game: 'Games' };
+const KIND_NAME = { show: 'TV', anime: 'Anime', movie: 'Movies', audiobook: 'Audiobooks', book: 'Books', comic: 'Comics', game: 'Games' };
 // A calendar entry's colour key: audiobooks apart from books.
 const kindOf = (e) => (e.type === 'book' && e.format === 'audiobook' ? 'audiobook' : e.type ?? (e.kind === 'episode' ? 'show' : 'game'));
 // A library item's colour key, or null for kinds without a colour (comics, podcasts…).
@@ -459,7 +459,8 @@ async function renderLibrary() {
   if (state.libStatus) q.set('status', state.libStatus);
   if (state.libQuery) q.set('q', state.libQuery);
   const [items, lists] = await Promise.all([api('GET', '/items?' + q), api('GET', '/collections')]);
-  const types = Object.entries(META.item_types);
+  // Audiobooks get their own chip (books with format audiobook), right after books.
+  const types = Object.entries(META.item_types).flatMap(([k, v]) => (k === 'book' ? [[k, v], ['audiobook', { icon: '🎧' }]] : [[k, v]]));
   view.innerHTML = `
     <h1 class="view-title"><span class="o">LIBRARY</span></h1>
     <p class="view-sub">Everything you play, watch, read and listen to. 128bitplay games show up here on their own.</p>
@@ -619,7 +620,7 @@ function tile(i) {
     <div class="cover">${coverHtml(i)}
       <span class="status ${i.status}">${STATUS_LABEL[i.status]}</span>${i.trophy_kind ? `<span class="trophy-badge" title="${TROPHY_NAMES[i.trophy_kind]}">${trophySvg(i.trophy_kind, 30)}</span>` : ''}${i.source !== 'manual' ? `<span class="src">${esc(i.source.replace('128bit', ''))}</span>` : ''}</div>
     <div class="tile-body"><div class="tile-title">${esc(i.title)}</div>
-      <div class="tile-sub">${esc(i.icon)} ${esc(i.type)}${i.meta?.season ? ' · S' + esc(i.meta.season) : ''}${i.creator ? ' · ' + esc(i.creator) : ''}${i.year ? ' · ' + i.year : ''}</div>
+      <div class="tile-sub">${k === 'audiobook' ? '🎧 audiobook' : `${esc(i.icon)} ${esc(i.type)}`}${i.meta?.season ? ' · S' + esc(i.meta.season) : ''}${i.creator ? ' · ' + esc(i.creator) : ''}${i.year ? ' · ' + i.year : ''}</div>
       ${pct != null ? `<div class="mini-bar" title="${pct}%"><span style="width:${pct}%"></span></div>` : ''}
       ${label && i.status !== 'done' ? `<div class="tile-prog">${esc(label)}</div>` : ''}
       ${i.rating ? `<div class="stars"><span style="font-family:var(--sans)">★</span> ${i.rating}/10</div>` : ''}</div>
@@ -909,10 +910,29 @@ async function renderStats() {
   const year = new Date().getFullYear();
   const [s, pixels, tro] = await Promise.all([api('GET', '/stats'), api('GET', `/stats/year/${year}`), api('GET', '/trophies')]);
   const lib = Object.entries(s.library).sort((a, b) => b[1].total - a[1].total);
-  const max = Math.max(1, ...pixels.days.map((d) => d.logs + d.events));
-  const lvl = (n) => (n === 0 ? '' : n / max > 0.75 ? 'l4' : n / max > 0.4 ? 'l3' : n / max > 0.15 ? 'l2' : 'l1');
+  // A day's cell: the colour of what you mostly watched / listened to / read that day
+  // (TV yellow, anime pink…), brighter the more you did; habits and other apps in teal.
+  const score = (d) => d.logs + d.events + d.minutes / 15;
+  const max = Math.max(1, ...pixels.days.map(score));
+  const lvl = (n) => (n === 0 ? 0 : n / max > 0.6 ? 4 : n / max > 0.3 ? 3 : n / max > 0.1 ? 2 : 1);
+  const cell = (d) => {
+    const l = lvl(score(d));
+    if (!l) return `<i data-day="${d.day}"></i>`;
+    if (d.top) return `<i data-day="${d.day}" style="background:${KIND_COLOR[d.top]};opacity:${[0, 0.45, 0.65, 0.85, 1][l]}"></i>`;
+    return `<i data-day="${d.day}" class="l${l}"></i>`;
+  };
+  const byDay = new Map(pixels.days.map((d) => [d.day, d]));
+  const dayLine = (d) => {
+    const kinds = Object.entries(d.kinds ?? {}).sort((a, b) => b[1].minutes - a[1].minutes);
+    const what = kinds.map(([k, v]) => `<span style="color:${KIND_COLOR[k] ?? 'inherit'}">${esc(KIND_NAME[k] ?? k)} ${v.minutes ? fmtMin(v.minutes) : `×${v.n}`}</span>`);
+    if (d.logs) what.push(`${d.logs} habit log${d.logs === 1 ? '' : 's'}`);
+    const other = d.events - kinds.reduce((a, [, v]) => a + v.n, 0);
+    if (other > 0) what.push(`${other} other event${other === 1 ? '' : 's'}`);
+    return `<b>${esc(new Date(d.day + 'T12:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }))}</b> · ${what.length ? what.join(' · ') : 'nothing logged'}`;
+  };
   const pad = (new Date(year, 0, 1).getDay() + 6) % 7; // weeks start Monday
   const minutes = lib.reduce((a, [, v]) => a + (v.minutes ?? 0), 0);
+  const timeSplit = lib.filter(([, v]) => v.minutes).sort((a, b) => b[1].minutes - a[1].minutes).slice(0, 3).map(([t, v]) => `${KIND_NAME[t] ?? t} ${fmtMin(v.minutes)}`).join(' · ');
   view.innerHTML = `
     <h1 class="view-title"><span class="o">STATS</span></h1>
     <p class="view-sub">Numbers, not guilt.</p>
@@ -926,16 +946,23 @@ async function renderStats() {
       ${kpi('BEST LIVE STREAK', `🔥${s.habits.best_current_streak}`, `all-time best ${s.habits.best_ever_streak}`)}
       ${kpi('30-DAY RATE', `${s.habits.avg_completion_30d}%`, 'average completion')}
       ${kpi(`FINISHED IN ${year}`, s.finished_this_year, 'games, books, shows…')}
-      ${kpi('TIME LOGGED', fmtMin(minutes), 'across the library')}
+      ${kpi('TIME LOGGED', fmtMin(minutes), timeSplit || 'watching, listening, reading, playing')}
       ${kpi('AVG RATING', s.average_rating ?? '—', 'out of 10')}
     </div>
     <h2 class="sec">${year} IN PIXELS</h2>
-    <div class="pixels-wrap"><div class="pixels" role="img" aria-label="Activity per day in ${year}">${'<i style="visibility:hidden"></i>'.repeat(pad)}${pixels.days.map((d) => `<i class="${lvl(d.logs + d.events)}" title="${d.day}: ${d.logs} logs, ${d.events} events"></i>`).join('')}</div></div>
-    <div class="legend">less <i style="background:var(--panel-2)"></i><i style="background:#134e48"></i><i style="background:#1f8a7d"></i><i style="background:var(--teal)"></i><i style="background:var(--orange)"></i> more</div>
+    <div class="pixels" role="img" aria-label="Activity per day in ${year}">${'<i style="visibility:hidden"></i>'.repeat(pad)}${pixels.days.map(cell).join('')}</div>
+    <div class="legend">${['show', 'anime', 'movie', 'audiobook', 'book', 'comic'].map((k) => `<span><i style="background:${KIND_COLOR[k]}"></i>${KIND_NAME[k]}</span>`).join('')}<span><i style="background:var(--teal)"></i>Other</span></div>
+    <p class="px-day muted" id="px-day">${dayLine(byDay.get(todayStr()) ?? pixels.days.at(-1))}</p>
     <h2 class="sec">LIBRARY</h2>
     ${lib.length ? `<div class="table-wrap"><table class="lib-stats"><thead><tr><th>TYPE</th><th class="n">TOTAL</th><th class="n">ACTIVE</th><th class="n">DONE</th><th class="n">TIME</th></tr></thead><tbody>
-      ${lib.map(([t, v]) => `<tr><td>${esc(META.item_types[t]?.icon ?? '📦')} ${esc(t)}</td><td class="n">${v.total}</td><td class="n">${v.active ?? 0}</td><td class="n">${v.done ?? 0}</td><td class="n">${v.minutes ? fmtMin(v.minutes) : '—'}</td></tr>`).join('')}
+      ${lib.map(([t, v]) => `<tr><td>${esc(t === 'audiobook' ? '🎧' : META.item_types[t]?.icon ?? '📦')} ${esc(t)}</td><td class="n">${v.total}</td><td class="n">${v.active ?? 0}</td><td class="n">${v.done ?? 0}</td><td class="n">${v.minutes ? fmtMin(v.minutes) : '—'}</td></tr>`).join('')}
     </tbody></table></div>` : `<p class="muted">Library is empty.</p>`}`;
+  // Tap a day to see what it was.
+  view.querySelectorAll('.pixels [data-day]').forEach((c) => c.addEventListener('click', () => {
+    view.querySelectorAll('.pixels .sel').forEach((x) => x.classList.remove('sel'));
+    c.classList.add('sel');
+    $('#px-day').innerHTML = dayLine(byDay.get(c.dataset.day));
+  }));
 }
 const kpi = (k, v, s) => `<div class="kpi"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div><div class="s">${esc(s)}</div></div>`;
 

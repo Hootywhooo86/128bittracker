@@ -91,7 +91,10 @@ export function findByExternal(ctx, source, externalId) {
 export function listItems(ctx, { type, status, q, collection, sort = 'updated', limit = 100, offset = 0 } = {}) {
   const where = [];
   const args = [];
-  if (type) { where.push('i.type = ?'); args.push(type); }
+  // "audiobook" is a book with format audiobook; "book" leaves those out.
+  if (type === 'audiobook') where.push("i.type = 'book' AND json_extract(i.meta, '$.format') = 'audiobook'");
+  else if (type === 'book') where.push("i.type = 'book' AND COALESCE(json_extract(i.meta, '$.format'), '') <> 'audiobook'");
+  else if (type) { where.push('i.type = ?'); args.push(type); }
   if (status) { where.push('i.status = ?'); args.push(status); }
   if (q) { where.push('(i.title LIKE ? OR i.creator LIKE ?)'); args.push(`%${q}%`, `%${q}%`); }
   if (collection) {

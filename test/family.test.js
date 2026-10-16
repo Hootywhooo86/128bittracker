@@ -79,7 +79,7 @@ test('pull: Play media + Fit workouts land in the library and habits; season fin
   assert.equal(r.error, undefined);
   assert.equal(r.pulled, 7);
   assert.equal(listItems(ctx, { type: 'movie' })[0].status, 'done');
-  assert.equal(listItems(ctx, { type: 'book' })[0].creator, 'Frank Herbert');
+  assert.equal(listItems(ctx, { type: 'audiobook' })[0].creator, 'Frank Herbert', "Play's books are audiobooks: the audiobook filter");
   const season = listItems(ctx, { type: 'show' })[0];
   assert.equal(season.meta.season, 1);
   assert.equal(season.progress, 2);

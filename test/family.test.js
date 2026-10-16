@@ -85,7 +85,7 @@ test('pull: Play media + Fit workouts land in the library and habits; season fin
   assert.equal(season.progress, 2);
   assert.equal(season.progress_total, 2);
   assert.equal(season.status, 'done');
-  assert.deepEqual(trophyCounts(ctx), { controller: 0, vhs: 1, tv: 1, anime: 0 });
+  assert.deepEqual(trophyCounts(ctx), { controller: 0, vhs: 1, tv: 1, anime: 0, cd: 1 }, "Play's finished book is an audiobook: golden CD");
   assert.equal(listItems(ctx, { type: 'comic' })[0].progress, 1);
   assert.equal(getTracker(ctx, workout.id).today.done, true);
   const ev = ctx.db.prepare("SELECT source, title FROM events WHERE id = 'p1'").get();

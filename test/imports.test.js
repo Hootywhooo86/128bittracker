@@ -151,6 +151,74 @@ test('search routes each type to the right provider', async () => {
   await assert.rejects(() => searchTitles(c, { type: 'book', q: 'x' }), /at least 2/);
 });
 
+test('books: Open Library then Google Books (deduped); audiobooks: Audible first, saved as format audiobook', async () => {
+  const seen = [];
+  let gbooksDown = false;
+  const fetch = async (url) => {
+    const u = String(url);
+    seen.push(u);
+    const body = (x) => new Response(JSON.stringify(x), { status: 200 });
+    if (u.includes('openlibrary')) return body({ docs: [{ key: '/works/OL1W', title: 'Dune', author_name: ['Frank Herbert'], first_publish_year: 1965 }] });
+    if (u.includes('googleapis.com/books')) {
+      if (gbooksDown) return new Response(JSON.stringify({ error: { code: 429 } }), { status: 429 });
+      return body({ items: [
+        { id: 'g1', volumeInfo: { title: 'Dune', authors: ['Frank Herbert'], publishedDate: '1990-09-01' } },
+        { id: 'g2', volumeInfo: { title: 'Book of the Dead', authors: ['RinoZ'], publishedDate: '2025-07-15', pageCount: 600, imageLinks: { thumbnail: 'http://books.google.com/x&edge=curl' }, industryIdentifiers: [{ type: 'ISBN_13', identifier: '978' }] } },
+      ] });
+    }
+    if (u.includes('api.audible.com/1.0/catalog/products')) {
+      assert.match(u, /keywords=Masquerade/);
+      assert.match(u, /response_groups=[^&]*series/);
+      return body({ products: [{
+        asin: 'B0FFBMSL71', title: 'Masquerade: A LitRPG Adventure', subtitle: 'Book of the Dead, Book 3',
+        authors: [{ asin: 'B09TDCYJSX', name: 'RinoZ' }], narrators: [{ name: 'Phil Thron' }],
+        release_date: '2025-07-15', runtime_length_min: 1333, publisher_name: 'Aethon Audio',
+        product_images: { 500: 'https://m.media-amazon.com/images/I/51Ehm7VRTeL._SL500_.jpg' },
+        series: [{ asin: 'B0CPHQTMHN', sequence: '3', title: 'Book of the Dead' }],
+      }] });
+    }
+    return new Response('{}', { status: 404 });
+  };
+  const c = ctx(fetch);
+  const books = await searchTitles(c, { type: 'book', q: 'dune' });
+  assert.deepEqual(books.map((b) => b.provider), ['openlibrary', 'gbooks'], 'the same Dune from Google Books is dropped');
+  assert.equal(books[1].cover_url, 'https://books.google.com/x');
+  assert.equal(books[1].progress_total, 600);
+  assert.equal(books[1].meta.release_date, '2025-07-15');
+
+  const audio = await searchTitles(c, { type: 'audiobook', q: 'Masquerade Book of the Dead' });
+  const m = audio[0];
+  assert.equal(m.provider, 'audible');
+  assert.equal(m.provider_id, 'B0FFBMSL71');
+  assert.equal(m.creator, 'RinoZ');
+  assert.equal(m.year, 2025);
+  assert.equal(m.cover_url, 'https://m.media-amazon.com/images/I/51Ehm7VRTeL._SL500_.jpg');
+  assert.deepEqual({ ...m.meta, publisher: undefined }, {
+    format: 'audiobook', asin: 'B0FFBMSL71', narrator: 'Phil Thron', runtime_min: 1333,
+    series: 'Book of the Dead', series_position: '3', series_asin: 'B0CPHQTMHN', release_date: '2025-07-15', publisher: undefined,
+  });
+  assert.ok(audio.length >= 3, 'Google Books and Open Library follow');
+  assert.ok(audio.every((r) => r.meta.format === 'audiobook'), 'every pick saves as an audiobook');
+
+  // Google Books' shared quota used up (not signed in): the other sources still answer.
+  gbooksDown = true;
+  assert.deepEqual((await searchTitles(c, { type: 'book', q: 'dune' })).map((b) => b.provider), ['openlibrary']);
+  assert.equal((await searchTitles(c, { type: 'audiobook', q: 'Masquerade' }))[0].provider, 'audible');
+});
+
+test('audiobooks: finishing one earns the golden CD; a paper book does not', async () => {
+  const { createItem, updateItem } = await import('../src/domain/library.js');
+  const c = ctx();
+  const paper = createItem(c, { type: 'book', title: 'Dune', status: 'active' });
+  assert.equal(updateItem(c, paper.id, { status: 'done' }).new_trophy, undefined);
+  const audio = createItem(c, { type: 'book', title: 'Masquerade', status: 'active', meta: { format: 'audiobook', asin: 'B0FFBMSL71' } });
+  const done = updateItem(c, audio.id, { status: 'done' });
+  assert.equal(done.new_trophy.kind, 'cd');
+  assert.equal(trophyCounts(c).cd, 1);
+  const ev = c.db.prepare("SELECT title FROM events WHERE type = 'trophy.earned'").get();
+  assert.equal(ev.title, '🏆 Golden CD — Masquerade');
+});
+
 test('calendar: next episodes and game releases, cached', async () => {
   const { upcoming } = await import('../src/integrations/calendar.js');
   const { createItem } = await import('../src/domain/library.js');

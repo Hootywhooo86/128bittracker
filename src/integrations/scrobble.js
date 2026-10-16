@@ -8,6 +8,7 @@
 //   Emby      Settings → Webhooks                         playback.stop when finished, or item.markplayed
 //   generic   { type: "movie"|"episode", title, show?, season?, episode?, year? }
 import { HttpError } from '../api/errors.js';
+import { toDay } from '../domain/dates.js';
 
 export const SCROBBLERS = ['plex', 'jellyfin', 'emby', 'generic'];
 
@@ -17,7 +18,7 @@ export function scrobbleEvent(service, p) {
   if (!p || typeof p !== 'object') throw new HttpError(400, 'send the webhook payload');
   const w = PARSERS[service](p);
   if (!w || !(w.kind === 'movie' ? w.title : w.show)) return null;
-  const day = new Date().toISOString().slice(0, 10);
+  const day = toDay(); // the device's own day, not UTC's
   const what = w.kind === 'movie' ? w.title : `${w.show} S${w.season ?? 0}E${w.number ?? 0}`;
   return {
     // One event per thing per day, so a webhook firing twice counts once.

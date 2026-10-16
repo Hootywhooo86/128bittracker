@@ -17,6 +17,7 @@ import { createItem, updateItem } from '../domain/library.js';
 import { tx } from '../db/tx.js';
 import { upcoming } from './calendar.js';
 import { lookupShowByImdb, lookupShowById } from './enrich.js';
+import { withCloudStarters } from './starter-lists.js';
 
 const BATCH = 500;
 const ENRICH_PER_SYNC = 10;
@@ -290,7 +291,8 @@ export function cloudSync(ctx, { rpc, userId }) {
   const job = (async () => {
     try {
       claimOwner(ctx, userId);
-      const pushed = await push(ctx, rpc);
+      // First sync of an account: the five starter lists (Movies, Shows, Anime, Audiobooks, Comics).
+      const pushed = await withCloudStarters(ctx, rpc, userId, () => push(ctx, rpc));
       const { pulled, trophies } = await pull(ctx, rpc);
       try { await enrich(ctx); } catch { /* offline: next time */ }
       const s = state(ctx);

@@ -2,6 +2,7 @@
 // /api/v1; in the Android app the same API runs on-device (see transport.js).
 import { request, platform } from './transport.js';
 import { trophySvg, TROPHY_KINDS } from './trophy-art.js';
+import { sittingWhere, fixSittingTitle } from './sitting.js';
 
 const APP_COLORS = {
   '128bittracker': '#2dd4bf', '128bitplay': '#ff5d8f', '128bitfit': '#fb923c', '128bitgold': '#facc15',
@@ -26,8 +27,8 @@ async function api(method, path, body) {
 }
 
 // ---------- trophies ----------
-const TROPHY_NAMES = { controller: 'GOLDEN CONTROLLER', vhs: 'GOLDEN VHS', tv: 'GOLDEN TV', anime: 'GOLDEN IDOL' };
-const TROPHY_FOR = { controller: '100% a game', vhs: 'Finish a movie', tv: 'Finish a show season', anime: 'Finish an anime series' };
+const TROPHY_NAMES = { controller: 'GOLDEN CONTROLLER', vhs: 'GOLDEN VHS', tv: 'GOLDEN TV', anime: 'GOLDEN IDOL', cd: 'GOLDEN CD' };
+const TROPHY_FOR = { controller: '100% a game', vhs: 'Finish a movie', tv: 'Finish a show season', anime: 'Finish an anime series', cd: 'Finish an audiobook' };
 
 function celebrate(t) {
   const root = document.createElement('div');
@@ -166,8 +167,9 @@ function mediaCard(i, sub, actions = '', pct = null) {
 
 // One colour per kind, everywhere: calendar dots, Continue, the timeline. Changed in
 // settings (🎨 COLOURS) and kept on this device.
-const DEFAULT_COLORS = { show: '#facc15', anime: '#f472b6', movie: '#a855f7', book: '#a0522d', game: '#2dd4bf', accent: '#2dd4bf', heading: '#ff9f1c', background: '#0b0b16' };
-const COLOR_LABEL = { show: 'TV shows', anime: 'Anime', movie: 'Movies', book: 'Audiobooks & books', game: 'Games', accent: 'Buttons & highlights', heading: 'Headings & main buttons', background: 'Background' };
+// Books are brown; audiobooks (books with format audiobook, Play's listening) orange.
+const DEFAULT_COLORS = { show: '#facc15', anime: '#f472b6', movie: '#a855f7', audiobook: '#f97316', book: '#a0522d', game: '#2dd4bf', accent: '#2dd4bf', heading: '#ff9f1c', background: '#0b0b16' };
+const COLOR_LABEL = { show: 'TV shows', anime: 'Anime', movie: 'Movies', audiobook: 'Audiobooks', book: 'Books', game: 'Games', accent: 'Buttons & highlights', heading: 'Headings & main buttons', background: 'Background' };
 const KIND_COLOR = { ...DEFAULT_COLORS };
 try { Object.assign(KIND_COLOR, JSON.parse(localStorage.getItem('tracker.colors') || '{}')); } catch { /* no storage */ }
 const shade = (hex, f) => '#' + [1, 3, 5].map((i) => Math.round(parseInt(hex.slice(i, i + 2), 16) * f).toString(16).padStart(2, '0')).join('');
@@ -192,8 +194,11 @@ function renderColors(el) {
   el.querySelectorAll('[data-color]').forEach((i) => i.addEventListener('input', () => saveColors({ [i.dataset.color]: i.value })));
   el.querySelector('#colors-reset').addEventListener('click', () => { saveColors({ ...DEFAULT_COLORS }); renderColors(el); toast('COLOURS RESET'); });
 }
-const KIND_NAME = { show: 'TV', anime: 'Anime', movie: 'Movies', book: 'Audiobooks & books', game: 'Games' };
-const kindOf = (e) => e.type ?? (e.kind === 'episode' ? 'show' : 'game');
+const KIND_NAME = { show: 'TV', anime: 'Anime', movie: 'Movies', audiobook: 'Audiobooks', book: 'Books', game: 'Games' };
+// A calendar entry's colour key: audiobooks apart from books.
+const kindOf = (e) => (e.type === 'book' && e.format === 'audiobook' ? 'audiobook' : e.type ?? (e.kind === 'episode' ? 'show' : 'game'));
+// A library item's colour key, or null for kinds without a colour (comics, podcasts…).
+const itemKind = (i) => (i.type === 'book' && i.meta?.format === 'audiobook' ? 'audiobook' : ['show', 'anime', 'movie', 'book', 'game'].includes(i.type) ? i.type : null);
 
 // Continue: movies, TV shows, anime, then audiobooks & books. TV / anime show
 // the episode you're partway through, else the next one that's out.
@@ -225,14 +230,15 @@ async function renderContinue(el, cal = null) {
     })],
     ['show', '📺 TV SHOWS', shows.filter((u) => u.type === 'show').map(epCard)],
     ['anime', '🌸 ANIME', shows.filter((u) => u.type === 'anime').map(epCard)],
-    // Listening / reading now: audiobooks first.
-    ['book', '🎧 AUDIOBOOKS & BOOKS', active.filter((i) => i.type === 'book')
-      .sort((a, b) => Number(b.meta?.format === 'audiobook') - Number(a.meta?.format === 'audiobook') || recent(a, b))
-      .map((i) => {
-        const { pct, label } = progressOf(i);
-        const audio = i.meta?.format === 'audiobook';
-        return mediaCard(i, `${audio ? '🎧 ' : '📖 '}${esc(label || (audio ? 'Listening' : 'Reading'))}${i.creator ? ` · ${esc(i.creator)}` : ''}`, playBtn(i, null, audio ? '▶ LISTEN' : '▶ READ'), pct);
-      })],
+    // Listening now (orange), then reading (brown).
+    ['audiobook', '🎧 AUDIOBOOKS', active.filter((i) => i.type === 'book' && i.meta?.format === 'audiobook').sort(recent).map((i) => {
+      const { pct, label } = progressOf(i);
+      return mediaCard(i, `🎧 ${esc(label || 'Listening')}${i.creator ? ` · ${esc(i.creator)}` : ''}`, playBtn(i, null, '▶ LISTEN'), pct);
+    })],
+    ['book', '📖 BOOKS', active.filter((i) => i.type === 'book' && i.meta?.format !== 'audiobook').sort(recent).map((i) => {
+      const { pct, label } = progressOf(i);
+      return mediaCard(i, `📖 ${esc(label || 'Reading')}${i.creator ? ` · ${esc(i.creator)}` : ''}`, playBtn(i, null, '▶ READ'), pct);
+    })],
   ];
   const body = groups.filter(([, , cards]) => cards.length)
     .map(([k, title, cards]) => `<h3 class="sub kind" style="--c:${KIND_COLOR[k]}">${title}</h3><div class="upnext kinded" style="--c:${KIND_COLOR[k]}">${cards.join('')}</div>`).join('');
@@ -270,10 +276,10 @@ function renderCalendar(el, entries) {
   const label = new Date(cal.day + 'T12:00').toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
   const row = (e) => {
     const k = kindOf(e);
-    const note = k === 'movie' ? 'In cinemas: start looking for streams' : k === 'book' ? (e.format === 'audiobook' ? 'Audiobook out' : 'Out') : e.detail;
+    const note = k === 'movie' ? 'In cinemas: start looking for streams' : k === 'audiobook' ? 'Audiobook out' : k === 'book' ? 'Out' : e.detail;
     return `<div class="cal-entry" style="--c:${KIND_COLOR[k] ?? '#9a97b8'}">
-      <div class="up-cover">${coverHtml({ cover_url: e.cover_url, icon: k === 'movie' ? '🎬' : k === 'anime' ? '🌸' : k === 'book' ? '🎧' : '📺', meta: {} })}</div>
-      <div><b>${esc(e.title)}</b><div class="muted">${esc(KIND_NAME[k] ?? k)} · ${esc(k === 'movie' || k === 'book' ? note : e.detail ?? '')}</div></div></div>`;
+      <div class="up-cover">${coverHtml({ cover_url: e.cover_url, icon: k === 'movie' ? '🎬' : k === 'anime' ? '🌸' : k === 'audiobook' ? '🎧' : k === 'book' ? '📖' : '📺', meta: {} })}</div>
+      <div><b>${esc(e.title)}</b><div class="muted">${esc(KIND_NAME[k] ?? k)} · ${esc(k === 'movie' || k === 'book' || k === 'audiobook' ? note : e.detail ?? '')}</div></div></div>`;
   };
   const tba = entries.filter((e) => !e.date);
   el.innerHTML = `<h2 class="sec">📅 UPCOMING</h2>
@@ -282,7 +288,7 @@ function renderCalendar(el, entries) {
         <b>${esc(start.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }).toUpperCase())}</b>
         <button class="btn ghost small" data-month="1" aria-label="Next month">›</button></div>
       <div class="cal-grid">${['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d) => `<span class="cal-wd">${d}</span>`).join('')}${cells.join('')}</div>
-      <div class="cal-legend">${['show', 'anime', 'movie', 'book'].map((k) => `<span><i style="background:${KIND_COLOR[k]}"></i>${KIND_NAME[k]}</span>`).join('')}</div>
+      <div class="cal-legend">${['show', 'anime', 'movie', 'audiobook', 'book'].map((k) => `<span><i style="background:${KIND_COLOR[k]}"></i>${KIND_NAME[k]}</span>`).join('')}</div>
     </div>
     <h3 class="sub">${esc(label.toUpperCase())}</h3>
     ${picked.length ? `<div class="cal-list">${picked.map(row).join('')}</div>` : '<p class="muted">Nothing coming that day.</p>'}
@@ -608,7 +614,8 @@ function progressOf(i) {
 
 function tile(i) {
   const { pct, label } = progressOf(i);
-  return `<button class="tile" data-item="${i.id}">
+  const k = itemKind(i);
+  return `<button class="tile${k ? ' kinded' : ''}" data-item="${i.id}"${k ? ` style="--k:${KIND_COLOR[k]}"` : ''}>
     <div class="cover">${coverHtml(i)}
       <span class="status ${i.status}">${STATUS_LABEL[i.status]}</span>${i.trophy_kind ? `<span class="trophy-badge" title="${TROPHY_NAMES[i.trophy_kind]}">${trophySvg(i.trophy_kind, 30)}</span>` : ''}${i.source !== 'manual' ? `<span class="src">${esc(i.source.replace('128bit', ''))}</span>` : ''}</div>
     <div class="tile-body"><div class="tile-title">${esc(i.title)}</div>
@@ -622,7 +629,9 @@ function tile(i) {
 /** Add (or edit) a library item. opts.list: opened from a list, so it goes on that list too. */
 function itemModal(item = {}, opts = {}) {
   const editing = !!item.id;
-  const types = Object.keys(META.item_types);
+  // Audiobooks are books (meta.format 'audiobook') with their own search: Audible first.
+  const types = Object.keys(META.item_types).flatMap((t) => (t === 'book' ? ['book', 'audiobook'] : [t]));
+  const curType = item.type === 'book' && (item.meta?.format === 'audiobook' || (!editing && /audio/i.test(opts.list?.name ?? ''))) ? 'audiobook' : item.type;
   let picked = {};
   const onLists = new Set(opts.list ? [opts.list.id] : []);
   modal(editing ? `EDIT ${item.title}` : opts.list ? `ADD TO ${opts.list.name}` : 'ADD TO LIBRARY', `${editing ? '' : `<div class="search-box">
@@ -631,7 +640,7 @@ function itemModal(item = {}, opts = {}) {
       <div id="sr-results" class="sr-results"></div><div id="sr-seasons"></div></div>`}<form>
     <div class="field"><label for="if-title">TITLE</label><input class="input" id="if-title" name="title" required maxlength="200" value="${esc(item.title ?? '')}"></div>
     <div class="grid2">
-      <div class="field"><label for="if-type">TYPE</label><select class="input" id="if-type" name="type">${types.map((t) => `<option ${(item.type ?? state.libType ?? 'game') === t ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+      <div class="field"><label for="if-type">TYPE</label><select class="input" id="if-type" name="type">${types.map((t) => `<option ${(curType ?? state.libType ?? 'game') === t ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
       <div class="field"><label for="if-status">STATUS</label><select class="input" id="if-status" name="status">${META.statuses.map((s) => `<option value="${s}" ${(item.status ?? 'planned') === s ? 'selected' : ''}>${STATUS_LABEL[s].toLowerCase()}</option>`).join('')}</select></div>
       <div class="field"><label for="if-creator">CREATOR</label><input class="input" id="if-creator" name="creator" maxlength="120" value="${esc(item.creator ?? '')}" placeholder="Author, studio, artist"></div>
       <div class="field"><label for="if-year">YEAR</label><input class="input" id="if-year" name="year" type="number" min="0" value="${esc(item.year ?? '')}"></div>
@@ -668,12 +677,13 @@ function itemModal(item = {}, opts = {}) {
       const results = await api('GET', `/search?${new URLSearchParams({ type, q })}`);
       box.innerHTML = results.length ? results.map((r, i) => `<button type="button" class="sr-item" data-i="${i}">
           ${r.cover_url ? `<img src="${esc(r.cover_url)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : '<span class="sr-noimg">?</span>'}
-          <span><b>${esc(r.title)}</b><br><span class="muted">${[r.year, r.creator, r.progress_total ? r.progress_total + ' ' + (META.item_types[type]?.unit ?? '') : null].filter(Boolean).map(esc).join(' · ')}</span></span></button>`).join('')
+          <span><b>${esc(r.title)}</b><br><span class="muted">${[r.year, r.creator, r.meta?.narrator ? '🎙 ' + r.meta.narrator : null, r.meta?.runtime_min ? fmtMin(r.meta.runtime_min) : null, r.meta?.series ? `${r.meta.series}${r.meta.series_position ? ' #' + r.meta.series_position : ''}` : null, r.progress_total ? r.progress_total + ' ' + (META.item_types[type]?.unit ?? '') : null].filter(Boolean).map(esc).join(' · ')}</span></span></button>`).join('')
         : `<p class="muted" style="font-size:13px">No matches${type === 'movie' ? ' (movie search works best with a TMDB key — Connect tab)' : ''}.</p>`;
       box.querySelectorAll('.sr-item').forEach((b) => b.addEventListener('click', guard(async () => {
         const r = results[Number(b.dataset.i)];
         picked = { ...(r.meta ?? {}), provider: r.provider, provider_id: r.provider_id };
         set('title', r.title); set('creator', r.creator); set('year', r.year); set('cover_url', r.cover_url); set('progress_total', r.progress_total);
+        set('release_date', r.meta?.release_date);
         box.querySelectorAll('.sr-item').forEach((x) => x.classList.toggle('on', x === b));
         if (type === 'show' && (r.provider === 'tvmaze' || r.provider === 'tmdb')) {
           const seasons = await api('GET', `/search/seasons?${new URLSearchParams({ provider: r.provider, id: r.provider_id })}`);
@@ -692,7 +702,11 @@ function itemModal(item = {}, opts = {}) {
       e.preventDefault();
       const { season, ...f } = formData(e.target);
       const { release_date: releaseDate, ...rest } = f;
-      const body = { ...rest, year: f.year || null, progress_total: f.progress_total || null, cover_url: f.cover_url || null, creator: f.creator || null, meta: { ...picked, season: season ? Number(season) : null, release_date: releaseDate || null } };
+      // "audiobook" saves as a book with format audiobook (narrator, length, ASIN from Audible).
+      const audio = f.type === 'audiobook';
+      const format = audio ? 'audiobook' : picked.format === 'audiobook' || item.meta?.format === 'audiobook' ? null : undefined;
+      const body = { ...rest, type: audio ? 'book' : f.type, year: f.year || null, progress_total: f.progress_total || null, cover_url: f.cover_url || null, creator: f.creator || null,
+        meta: { ...picked, season: season ? Number(season) : null, release_date: releaseDate || null, ...(format !== undefined ? { format } : {}) } };
       const saved = editing ? await api('PATCH', `/items/${item.id}`, body) : await api('POST', '/items', body);
       if (!editing) for (const listId of onLists) await api('PUT', `/collections/${listId}/items/${saved.id}`);
       close(); toast(editing ? 'SAVED' : onLists.size ? `ADDED · ON ${onLists.size} ${onLists.size === 1 ? 'LIST' : 'LISTS'}` : 'ADDED');
@@ -833,12 +847,6 @@ function finishedSittings(all) {
 }
 
 const WATCH_LOG = new Set(['movie.watched', 'episode.watched', 'book.finished', 'chapter.read']);
-// 42:10 / 1:12:30
-const fmtPos = (sec) => {
-  const t = Math.max(0, Math.round(Number(sec) || 0));
-  const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), x = String(t % 60).padStart(2, '0');
-  return h ? `${h}:${String(m).padStart(2, '0')}:${x}` : `${m}:${x}`;
-};
 // What a watch / listen / read entry is, for its colour.
 function mediaKind(e) {
   const d = e.data ?? {};
@@ -846,7 +854,9 @@ function mediaKind(e) {
     if (d.kind === 'movie' || e.type === 'movie.watched') return 'movie';
     return d.anime || d.kitsu ? 'anime' : 'show';
   }
-  if (e.type === 'listen.session' || e.type === 'book.finished') return 'book';
+  // Play's books are audiobooks; a book.finished from elsewhere (Goodreads…) is a book.
+  if (e.type === 'listen.session') return 'audiobook';
+  if (e.type === 'book.finished') return e.source === '128bitplay' || d.format === 'audiobook' ? 'audiobook' : 'book';
   return null;
 }
 // "🕒 7:40–8:10 PM · ⏱ 42:10 → 1:12:30": when, and where in it you started and stopped.
@@ -856,23 +866,22 @@ function sittingLine(e) {
   const t = (x) => x.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   const end = new Date(e.occurred_at);
   const clock = d.started_at ? `${t(new Date(d.started_at))}–${t(end)}` : t(end);
-  let where = '';
-  if (d.from_s != null && d.to_s != null) {
-    where = e.type === 'listen.session' && d.from_chapter
-      ? `Ch ${d.from_chapter} ${fmtPos(d.from_s)} → Ch ${d.to_chapter} ${fmtPos(d.to_s)}`
-      : `${fmtPos(d.from_s)} → ${fmtPos(d.to_s)}`;
-  }
+  // Every position that came with it (chapter and time), even if only one end did.
+  const where = sittingWhere(d);
   return `<div class="tl-sit">🕒 ${esc(clock)}${where ? ` · ⏱ ${esc(where)}${d.finished ? '' : ' · stopped here'}` : ''}</div>`;
 }
 
 function tlItem(e) {
   const k = mediaKind(e);
   const c = (k && KIND_COLOR[k]) || APP_COLORS[e.source] || '#9a97b8';
-  const title = e.title ?? describe(e);
   const d = e.data ?? {};
+  // Sittings: minutes from the start/stop positions when Play's ticks came up short.
+  const title = e.type.endsWith('.session') && e.title ? fixSittingTitle(e.title, d, e.occurred_at) : e.title ?? describe(e);
   const from = Number(d.from_pct ?? d.to_pct), to = d.finished ? 100 : Number(d.to_pct);
   const bar = e.type.endsWith('.session') && Number.isFinite(to) ? `<div class="tl-bar" title="${Number.isFinite(from) ? from : 0}% → ${to}%"><span style="left:${Math.min(from || 0, to)}%;width:${Math.max(1, to - Math.min(from || 0, to))}%"></span></div>` : '';
-  return `<div class="tl-item" style="--c:${c}"><div class="tl-title">${esc(title)}</div>${bar}${sittingLine(e)}
+  // Trophies show their golden pixel art (VHS, TV, idol, controller, CD).
+  const art = e.type === 'trophy.earned' && TROPHY_NAMES[d.kind] ? `<span class="tl-trophy">${trophySvg(d.kind, 28)}</span>` : '';
+  return `<div class="tl-item" style="--c:${c}"><div class="tl-title">${art}${esc(title)}</div>${bar}${sittingLine(e)}
     <div class="tl-meta"><span class="app-tag" style="--c:${c}">${esc(e.source.replace('128bit', '').toUpperCase() || e.source)}</span>
       <span>${esc(e.type)}</span><span>${new Date(e.occurred_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span></div></div>`;
 }
@@ -910,7 +919,7 @@ async function renderStats() {
     <h2 class="sec" style="margin-top:6px">TROPHY SHELF</h2>
     <div class="shelf">${TROPHY_KINDS.map((k) => `<div class="shelf-slot ${tro.counts[k] ? 'won' : ''}">${trophySvg(k, 64, { locked: !tro.counts[k] })}
       <div class="px shelf-n">×${tro.counts[k]}</div><div class="shelf-for">${TROPHY_FOR[k]}</div></div>`).join('')}</div>
-    ${tro.trophies.length ? `<div class="shelf-list">${tro.trophies.slice(0, 24).map((t) => `<div class="shelf-item" title="${esc(TROPHY_NAMES[t.kind])} · ${new Date(t.earned_at).toLocaleDateString()}">${trophySvg(t.kind, 36)}<span>${esc(t.title)}</span></div>`).join('')}</div>` : '<p class="muted" style="font-size:13px;margin:10px 0 0">Finish a movie, a show season or an anime, or 100% a game, to earn your first golden trophy.</p>'}
+    ${tro.trophies.length ? `<div class="shelf-list">${tro.trophies.slice(0, 24).map((t) => `<div class="shelf-item" title="${esc(TROPHY_NAMES[t.kind])} · ${new Date(t.earned_at).toLocaleDateString()}">${trophySvg(t.kind, 36)}<span>${esc(t.title)}</span></div>`).join('')}</div>` : '<p class="muted" style="font-size:13px;margin:10px 0 0">Finish a movie, a show season, an anime or an audiobook, or 100% a game, to earn your first golden trophy.</p>'}
     <h2 class="sec">THE NUMBERS</h2>
     <div class="kpis">
       ${kpi('DONE TODAY', `${s.habits.done_today}/${s.habits.count}`, 'habits')}

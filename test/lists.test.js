@@ -75,3 +75,55 @@ test('Google / Apple: PKCE start + finish; another account\'s sign-in is refused
   await assert.rejects(() => familySignIn(ctx, { email: 'other@x.com', password: 'pw' }),
     (err) => err.status === 409 && err.extra.code === 'other_account' && err.extra.account.user_id === 'u-3' && err.extra.account.refresh === 'RT');
 });
+
+test('starter lists, local: the five once, never a second one of what you have', async () => {
+  const { localStarterLists } = await import('../src/integrations/starter-lists.js');
+  const { listCollections } = await import('../src/domain/library.js');
+  const ctx = ctxOf();
+  createCollection(ctx, { name: 'Amine', kind: 'show' }); // your own, mis-kinded: counts as Anime
+  createCollection(ctx, { name: 'My audiobooks', kind: 'mixed' });
+  createCollection(ctx, { name: 'TV to watch', kind: 'show' });
+  assert.equal(localStarterLists(ctx, { signedIn: true }).length, 0, 'signed in: the cloud makes them');
+  const made = localStarterLists(ctx);
+  assert.deepEqual(made.map((l) => `${l.name}:${l.kind}`), ['Movies:movie', 'Comics:comic']);
+  assert.equal(localStarterLists(ctx).length, 0, 'only once');
+  deleteCollection(ctx, made[0].id);
+  assert.equal(localStarterLists(ctx).length, 0, 'a deleted one stays deleted');
+  assert.equal(listCollections(ctx).length, 4);
+});
+
+test('starter lists, signed in: starter_lists() once per account, untouched local ones make way', async () => {
+  const { localStarterLists } = await import('../src/integrations/starter-lists.js');
+  const { cloudSync } = await import('../src/integrations/cloud.js');
+  const { listCollections } = await import('../src/domain/library.js');
+  const ctx = ctxOf(async () => new Response('{}', { status: 404 }));
+  // First run on this phone, before signing in: the five, then a movie goes on Movies.
+  const local = localStarterLists(ctx);
+  assert.equal(local.length, 5);
+  const alien = createItem(ctx, { type: 'movie', title: 'Alien' });
+  setCollectionMembership(ctx, local[0].id, alien.id, true);
+  // The account already has its lists in the cloud (made on another phone).
+  const at = new Date(Date.now() + 1000).toISOString();
+  const cloud = [{ id: 'l-other-phone', name: 'Anime', kind: 'anime', show_in_play: true, position: 0, updated_at: at }];
+  const calls = [];
+  const rpc = async (fn, args) => {
+    calls.push(fn);
+    if (fn === 'tracker_push') { for (const l of args.payload.lists ?? []) cloud.push(l); return {}; }
+    if (fn === 'starter_lists') {
+      for (const [key, kind, name] of [['movie', 'movie', 'Movies'], ['show', 'show', 'Shows'], ['anime', 'anime', 'Anime'], ['audiobooks', 'book', 'Audiobooks'], ['comic', 'comic', 'Comics']]) {
+        if (!cloud.some((l) => l.name === name)) cloud.push({ id: `l-${key}`, name, kind, show_in_play: true, position: cloud.length, updated_at: at });
+      }
+      return Object.fromEntries(cloud.map((l) => [l.name, l.id]));
+    }
+    if (fn === 'tracker_pull') return { at, items: [], lists: cloud.map((l) => ({ ...l, updated_at: at })), list_items: [], trophies: [] };
+    return null;
+  };
+  const r = await cloudSync(ctx, { rpc, userId: 'u1' });
+  assert.equal(r.error, undefined);
+  assert.equal(calls.filter((c) => c === 'starter_lists').length, 1);
+  assert.deepEqual(cloud.filter((l) => l.name === 'Movies').length, 1, 'Movies (with Alien on it) went up; the cloud reused it');
+  const names = listCollections(ctx).map((l) => l.name).sort();
+  assert.deepEqual(names, ['Anime', 'Audiobooks', 'Comics', 'Movies', 'Shows'], 'no doubles');
+  await cloudSync(ctx, { rpc, userId: 'u1' });
+  assert.equal(calls.filter((c) => c === 'starter_lists').length, 1, 'once per account');
+});

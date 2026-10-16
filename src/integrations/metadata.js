@@ -1,6 +1,8 @@
 // Title search: fill in cover, year, creator and length when adding things.
 //
-//   book          Open Library            (no key)
+//   book          Open Library, then Google Books (no key; through 128bit Connect when signed in)
+//   audiobook     Audible catalog first (no key), then Google Books / Open Library;
+//                 saved as a book with meta.format 'audiobook'
 //   anime, manga  AniList                 (no key)
 //   podcast       iTunes                  (no key)
 //   music         iTunes albums           (no key)
@@ -29,7 +31,8 @@ export async function searchTitles(ctx, { type, q }) {
   const igdbReady = (igdb.client_id && igdb.client_secret) || hub;
   try {
     switch (type) {
-      case 'book': return await openLibrary(fetch, query);
+      case 'book': return mergeBooks(await openLibrary(fetch, query), await quiet(googleBooks(fetch, query)));
+      case 'audiobook': return await audiobooks(fetch, query);
       case 'anime': return await anilist(fetch, query, 'ANIME');
       case 'manga': return await anilist(fetch, query, 'MANGA');
       case 'podcast': return await itunes(fetch, query, { media: 'podcast' });
@@ -63,6 +66,91 @@ async function openLibrary(fetch, q) {
     provider: 'openlibrary',
     provider_id: d.key,
   }));
+}
+
+// A second or third book source failing (Google Books' shared quota answers 429
+// without a 128bit sign-in) never sinks the search: its results are just missing.
+const quiet = (p) => p.catch((err) => { console.warn('search:', err.message); return []; });
+
+const bookKey = (r) => `${String(r.title ?? '').toLowerCase().replace(/[:(].*$/, '').replace(/[^a-z0-9]+/g, ' ').trim()}|${String(r.creator ?? '').toLowerCase().replace(/[^a-z]+/g, '')}`;
+
+/** Lists in order, later ones only adding titles (title + author) not seen yet. */
+export function mergeBooks(...lists) {
+  const seen = new Set();
+  const out = [];
+  for (const r of lists.flat()) {
+    const k = bookKey(r);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(r);
+  }
+  return out;
+}
+
+async function audiobooks(fetch, q) {
+  const [aud, google, ol] = await Promise.all([quiet(audible(fetch, q)), quiet(googleBooks(fetch, q)), quiet(openLibrary(fetch, q))]);
+  // Books found elsewhere still save as audiobooks.
+  const asAudio = (r) => ({ ...r, meta: { ...(r.meta ?? {}), format: 'audiobook' } });
+  return mergeBooks(aud, google.map(asAudio), ol.map(asAudio));
+}
+
+const AUDIBLE_GROUPS = 'product_desc,contributors,media,series,product_attrs,product_extended_attrs';
+
+// Audible's own catalog: narrator, length, series and pre-order dates. No key.
+async function audible(fetch, q) {
+  const url = `https://api.audible.com/1.0/catalog/products?${new URLSearchParams({ keywords: q, num_results: '20', products_sort_by: 'Relevance', image_sizes: '500,1215', response_groups: AUDIBLE_GROUPS })}`;
+  const j = await getJson(fetch, url, { headers: { Accept: 'application/json' } });
+  return (j.products ?? []).filter((p) => p.asin && p.title).map((p) => {
+    const series = p.series?.[0];
+    const img = p.product_images ?? {};
+    const narrators = (p.narrators ?? []).map((n) => n.name).filter(Boolean);
+    return {
+      title: p.title,
+      creator: (p.authors ?? []).map((a) => a.name).filter(Boolean).join(', ') || null,
+      year: Number(String(p.release_date ?? p.issue_date ?? '').slice(0, 4)) || null,
+      cover_url: img['500'] ?? img['1215'] ?? Object.values(img)[0] ?? null,
+      progress_total: null,
+      provider: 'audible',
+      provider_id: p.asin,
+      meta: {
+        format: 'audiobook',
+        asin: p.asin,
+        narrator: narrators.join(', ') || null,
+        runtime_min: p.runtime_length_min ?? null,
+        ...(series ? { series: series.title, series_position: series.sequence ?? null, series_asin: series.asin ?? null } : {}),
+        release_date: /^\d{4}-\d{2}-\d{2}$/.test(p.release_date ?? '') ? p.release_date : null,
+        ...(p.publisher_name ? { publisher: p.publisher_name } : {}),
+      },
+    };
+  });
+}
+
+// Google Books: good on new and indie titles. Keyless, so signed in it goes
+// through 128bit Connect with 128bit's key (routedFetch); otherwise the shared
+// quota may say 429 and only the other sources answer.
+async function googleBooks(fetch, q) {
+  const url = `https://www.googleapis.com/books/v1/volumes?${new URLSearchParams({ q, maxResults: String(LIMIT), printType: 'books' })}`;
+  const j = await getJson(fetch, url, { headers: { Accept: 'application/json' } });
+  return (j.items ?? []).filter((v) => v.volumeInfo?.title).map((v) => {
+    const b = v.volumeInfo;
+    const img = b.imageLinks ?? {};
+    const cover = img.thumbnail ?? img.smallThumbnail ?? null;
+    const isbn = (b.industryIdentifiers ?? []).find((x) => x.type === 'ISBN_13')?.identifier ?? null;
+    return {
+      title: b.title,
+      creator: b.authors?.[0] ?? null,
+      year: Number(String(b.publishedDate ?? '').slice(0, 4)) || null,
+      cover_url: cover ? cover.replace(/^http:/, 'https:').replace('&edge=curl', '') : null,
+      progress_total: b.pageCount ?? null,
+      provider: 'gbooks',
+      provider_id: v.id,
+      meta: {
+        gbooks_id: v.id,
+        ...(isbn ? { isbn } : {}),
+        ...(/^\d{4}-\d{2}-\d{2}$/.test(b.publishedDate ?? '') ? { release_date: b.publishedDate } : {}),
+      },
+    };
+  });
 }
 
 const ANILIST_SEARCH = `query ($q: String, $type: MediaType) {

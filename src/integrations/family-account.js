@@ -15,6 +15,8 @@ import { cloudSync, cloudStatus, cloudEnabled, cloudOwner, setProfile } from './
 import { refreshConnections } from './hub.js';
 import { writeBack } from './writeback.js';
 import { tx } from '../db/tx.js';
+// Shared with the web app's timeline (public/ is plain browser JS, no Node imports).
+import { sittingMinutes, sittingMins } from '../../public/sitting.js';
 
 // The family project. Its publishable key is meant to be public; the tables
 // are only reachable through the family functions, per signed-in user.
@@ -229,23 +231,24 @@ export function fromFamily(e) {
     type: String(e.type),
     source: /^[a-z0-9_.-]+$/.test(app) ? (app.startsWith('128bit') || app === 'custom' ? app : `128bit${app}`) : 'custom',
     occurred_at: new Date(Number(e.at) || Date.now()).toISOString(),
-    title: titleFor(e.type, d),
+    title: titleFor(e.type, d, new Date(Number(e.at) || Date.now()).toISOString()),
     data: d,
   };
 }
 
-const mins = (m) => (m >= 60 ? `${Math.floor(m / 60)}h ${Math.round(m % 60)}m` : `${Math.round(m)} min`);
-// " · 23 min · 12% → 37%" or " · 41 min · ✓ finished"
-const sitting = (d) => `${d.minutes ? ` · ${mins(d.minutes)}` : ''}${d.finished ? ' · ✓ finished' : d.to_pct != null ? ` · ${d.from_pct != null && d.from_pct !== d.to_pct ? `${d.from_pct}% → ` : ''}${d.to_pct}%` : ''}`;
+const mins = sittingMins;
+// " · 23 min · 12% → 37%" or " · 41 min · ✓ finished". Minutes from the start/stop
+// positions when Play's tick count is short (screen off), see public/sitting.js.
+const sitting = (d, endAt) => `${sittingMinutes(d, endAt) ? ` · ${mins(sittingMinutes(d, endAt))}` : ''}${d.finished ? ' · ✓ finished' : d.to_pct != null ? ` · ${d.from_pct != null && d.from_pct !== d.to_pct ? `${d.from_pct}% → ` : ''}${d.to_pct}%` : ''}`;
 
-function titleFor(type, d) {
+function titleFor(type, d, endAt = null) {
   switch (type) {
     case 'book.finished': return `📚 Finished ${d.title}${d.author ? ` by ${d.author}` : ''}`;
     case 'movie.watched': return `🎬 Watched ${d.title}`;
     case 'episode.watched': return `📺 ${d.show}${d.episode ? ` · ${d.episode}` : ''}`;
     case 'chapter.read': return `💥 Read ${d.comic}`;
-    case 'watch.session': return `${d.kind === 'movie' ? '🎬' : '▶'} ${d.kind === 'movie' ? d.title : `${d.show}${d.episode ? ` · ${d.episode}` : ''}`}${sitting(d)}`;
-    case 'listen.session': return `🎧 ${d.title}${sitting(d)}`;
+    case 'watch.session': return `${d.kind === 'movie' ? '🎬' : '▶'} ${d.kind === 'movie' ? d.title : `${d.show}${d.episode ? ` · ${d.episode}` : ''}`}${sitting(d, endAt)}`;
+    case 'listen.session': return `🎧 ${d.title}${sitting(d, endAt)}`;
     case 'read.session': return `💥 ${d.comic}${d.chapter ? ` · ${d.chapter}` : ''}${d.minutes ? ` · ${mins(d.minutes)}` : ''}${d.chapters ? ` · ${d.chapters} chapter${d.chapters === 1 ? '' : 's'} read` : ''}`;
     case 'workout.logged': return `💪 ${d.name ?? 'Workout'}${d.minutes ? ` · ${d.minutes} min` : ''}`;
     case 'health.day': return `❤️ ${d.steps != null ? `${Number(d.steps).toLocaleString()} steps` : 'Health'}${d.sleepMinutes != null ? ` · ${Math.round(d.sleepMinutes / 6) / 10}h sleep` : ''}`;

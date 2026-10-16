@@ -1,6 +1,6 @@
 # Sunday list
 
-Requests saved for Sunday's session (nothing here is built yet).
+Requests saved for Sunday's session. Items marked ✅ were built early (Tracker v0.13.0, Oct 16).
 
 **Start: Sunday Oct 18, 10:30 AM Edmonton time (America/Edmonton, MDT = UTC−6).**
 
@@ -32,10 +32,31 @@ Requests saved for Sunday's session (nothing here is built yet).
      - One sitting = one line (no splits every few minutes, no lost sittings), and the
        session minutes for a day add up to Play's "time listened" stat.
 
+   ✅ **DONE Oct 16 (Tracker side only).** The timeline line always shows every position that
+   came with a sitting (`Ch 1 4:41 → Ch 1 59:41`, or just one end), and a sitting's minutes
+   come from the position difference when Play's tick count is smaller (same chapter, or no
+   chapters; capped at the clock time between start and stop; across chapters the ticks
+   stand). Old lines are corrected on display too. Code: `public/sitting.js` (shared by the
+   timeline and `family-account.js` titles), test `test/sitting.test.js`.
+   **Left (Play repo):** counting by position per chapter in `lib/player.tsx` / `lib/sessions.ts`,
+   hourly checkpoints, always sending `from_*` / `to_*`, and the on-phone review above.
+
 3. **Steps every 3 hours.** Read Health Connect (and take Fit's count) every 3 hours, also
    when Tracker isn't open: a background job (Android WorkManager / background task) plus
    the Health Connect background-read permission. Today it only reads while Tracker is
    open (on open, every 30 min, or READ NOW).
+
+   ✅ **DONE Oct 16 (as far as it can go without native code).** Tracker reads Health
+   Connect on every open and resume, every 30 min while on screen, and every 3 hours while
+   the app is still running in the background (`mobile/src/main.js`, `healthCheck`). Each
+   read covers the last 7 days and Health Connect keeps the history, so steps taken while
+   Tracker was closed are never lost: they arrive on the next open, on the right day (the
+   day buckets are the phone's local days; checked in the plugin's source).
+   **Not done:** reading while Tracker is fully closed. That needs a native Android
+   WorkManager job plus Health Connect's background-read permission
+   (`READ_HEALTH_DATA_IN_BACKGROUND`), and the job can't write into the WebView's sql.js
+   database, so it would have to queue the numbers for the app or post them to the cloud
+   itself. Fit's count still arrives through the family feed whenever Tracker syncs.
 
 4. **All books and audiobooks: better databases.** Today Tracker's book search is Open
    Library only (thin on new, indie and audiobook-only titles like *Book of the Dead*).
@@ -50,6 +71,14 @@ Requests saved for Sunday's session (nothing here is built yet).
 
    ✅ **Keys added on Oct 14** (`GOOGLE_BOOKS_KEY`, `HARDCOVER_TOKEN`). Sunday: check both
    respond through the Edge Function before building on them.
+
+   ✅ **DONE Oct 16 (Audible + Google Books).** Book search = Open Library, then Google Books
+   (deduped by title + author); Google Books goes through 128bit Connect when signed in and
+   is skipped quietly if it answers 429 (shared quota, not signed in). Audible catalog
+   search (no key) gives narrator, length, ASIN, series + number, release / pre-order date.
+   Code: `src/integrations/metadata.js`; tests in `test/imports.test.js`.
+   **Left:** Hardcover in search (series order / "next in series", upcoming releases), and
+   checking Google Books through the Edge Function on the phone while signed in.
 
    **API keys** (free; they go in Supabase → project
    `wvflpwtaszpstmjpkrhu` → Edge Functions → **Secrets**, same as `TMDB_TOKEN`):
@@ -68,12 +97,27 @@ Requests saved for Sunday's session (nothing here is built yet).
    **Audiobook** choice in Add / Search (Audible first, then Google Books / Open Library),
    saving the item as a book with `format: audiobook`, narrator, length and ASIN.
 
+   ✅ **DONE Oct 16.** Add / Search has an **audiobook** type (Audible first, then Google Books /
+   Open Library); it saves a `book` with `meta.format: 'audiobook'`, narrator, `runtime_min`,
+   ASIN, series and release date. Adding from a list named "…audio…" starts on audiobook.
+   API: `GET /api/v1/search?type=audiobook&q=…`.
+
 6. **Audiobooks get their own colour and trophy.**
    - Books stay **brown**. Audiobooks are **orange** (calendar dots, Continue group,
      timeline, library tiles, settings → Colours). Pick an orange that isn't the headings'
      orange (#ff9f1c), e.g. #f97316.
    - Finishing an audiobook earns a **golden CD with a book on the cover** (new trophy
      beside the golden VHS / TV / idol / controller), on the timeline and in Stats.
+
+   ✅ **DONE Oct 16.** Audiobooks are #f97316 with their own picker in 🎨 Colours (books stay
+   #a0522d): calendar dots + legend, Continue (🎧 Audiobooks, then 📖 Books), timeline
+   (`listen.session` and Play's `book.finished`), and a coloured left edge on library tiles
+   by kind. New trophy `cd`: the golden CD (pixel-art jewel case with an open book on the
+   cover, the disc peeking out) for finishing a book with `format: audiobook`; Play's
+   `book.finished` now marks the book as an audiobook. On the shelf in Stats and with its
+   art on the timeline's trophy lines. Tests: `test/imports.test.js`, `test/family.test.js`.
+   **Left:** Play's own audiobook items in the cloud library need `meta.format: 'audiobook'`
+   to colour orange / earn the CD (worth checking from the Play side).
 
 7. **Audiobooks: Tracker replaces Hardcover in 128bitPlay's Wanted flow.**
    You made an **Audiobooks** list in Tracker. That list becomes the source of what you
@@ -106,6 +150,15 @@ Requests saved for Sunday's session (nothing here is built yet).
    (Audiobooks → Wanted, Comics → Comics). Never duplicated if they already exist (match
    by name + kind, e.g. your own "Amine" / "Audiobooks" lists).
 
+   ✅ **DONE Oct 16.** Signed in: the first cloud sync of each account calls `starter_lists()`
+   (once, remembered in kv `cloud.starter.<user>`) right after its push, and the pull brings
+   the lists down. Not signed in: the five are made locally once on first run, skipping any
+   you already have (same fuzzy name match as the SQL: movie|film, show|tv|series,
+   anim|amine, audio|book, comic|manga|manhwa, else any list of that kind). Local starter
+   lists still empty when you first sign in make way for the account's own, so no
+   "Movies (2)". Code: `src/integrations/starter-lists.js`, `cloud.js`, `core-routes.js`;
+   tests in `test/lists.test.js`.
+
 9. **Play's Audiobooks tab only (not movies / shows): Library = books you have.**
    (Clarified Oct 15 with a screenshot of Audiobooks → Library / Downloads / Wanted.)
    - **Library**: the audiobooks you actually have (sent to TorBox or downloaded), each
@@ -135,6 +188,15 @@ Requests saved for Sunday's session (nothing here is built yet).
     - Health Connect `health.day` events (stored as local 23:59, check the day boundary).
     - Check Play too (session times, Continue / Up next, stats days).
     Test with the phone set to Edmonton at 7 PM and at 11:30 PM.
+
+    ✅ **DONE Oct 16 (Tracker).** `calendar.js` (today, AniList airing times, IGDB / Steam
+    release days, TMDB / Google Books "still coming" checks) and `scrobble.js` use the
+    device's local day (`toDay()`), never UTC. Checked: `health.js` (`health.day` stored as
+    local 23:59 of the Health Connect day, whose buckets are local days), the web app's
+    "today" / calendar / timeline grouping (all local). `test/timezone.test.js` runs with
+    TZ=America/Edmonton at 7 PM and 11:30 PM.
+    **Left:** Play (session times, Continue / Up next, stats days) and the Supabase trigger
+    `tracker_apply_event`'s day (the calendar RPCs were done Oct 16).
 
 12. **Play title page: show the whole backdrop image at the top.**
     (Screenshot Oct 15, *As a Reincarnated Aristocrat…*.) The backdrop starts halfway

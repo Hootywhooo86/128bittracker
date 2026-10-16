@@ -9,9 +9,12 @@
 //   any item with meta.release_date (set by hand) shows on that day
 //
 // Lookups are cached for a few hours; titles without ids are matched by name once.
+// Days are the device's own (toDay: the phone's time zone), never UTC: at 7 PM in
+// Edmonton it's still today, and an anime airing at 01:00 UTC is the evening before.
 import { serviceConfig } from './services.js';
 import { igdbQuery } from './metadata.js';
 import { hubOn, routedFetch } from './hub.js';
+import { toDay } from '../domain/dates.js';
 
 const TTL = 6 * 3600_000;
 const WATCHING = "status IN ('active','planned','on_hold')";
@@ -49,7 +52,7 @@ export async function upcoming(ctx, { refresh = false } = {}) {
     entries.push({ kind: 'release', date: i.meta.release_date, title: i.title, detail: releaseDetail(i), type: i.type, format: i.meta.format ?? null, item_id: i.id, cover_url: i.cover_url });
   }
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = toDay();
   const result = entries
     .filter((e) => !e.date || e.date >= today)
     .sort((a, b) => (a.date ?? '9999').localeCompare(b.date ?? '9999'));
@@ -89,7 +92,7 @@ async function shows(ctx, fetch, list, out) {
       const season = await json(fetch, `https://api.themoviedb.org/3/tv/${item.meta.tmdb_id}/season/${n.season_number}${v4 ? '' : `?api_key=${tmdb}`}`, {
         headers: v4 ? { Authorization: `Bearer ${tmdb}` } : {},
       }).catch(() => ({ episodes: [n] }));
-      const today = new Date().toISOString().slice(0, 10);
+      const today = toDay();
       for (const e of (season.episodes ?? [n]).filter((e) => e.air_date && e.air_date >= today && e.episode_number >= n.episode_number).slice(0, 26)) {
         out.push({ kind: 'episode', date: e.air_date, title: item.title, detail: `S${e.season_number} E${e.episode_number}${e.name ? ` · ${e.name}` : ''}`, season: e.season_number, number: e.episode_number, type: 'show', item_id: item.id, cover_url: item.cover_url });
       }
@@ -103,7 +106,7 @@ async function shows(ctx, fetch, list, out) {
     }
     if (!id) continue;
     const eps = await json(fetch, `https://api.tvmaze.com/shows/${id}/episodes`);
-    const today = new Date().toISOString().slice(0, 10);
+    const today = toDay();
     for (const n of eps.filter((e) => e.airdate && e.airdate >= today).slice(0, 26)) {
       out.push({ kind: 'episode', date: n.airdate, title: item.title, detail: `S${n.season} E${n.number}${n.name ? ` · ${n.name}` : ''}`, season: n.season, number: n.number, type: 'show', item_id: item.id, cover_url: item.cover_url });
     }
@@ -132,7 +135,7 @@ async function anime(fetch, list, out) {
     let m = item.meta.anilist_id ? found.get(item.meta.anilist_id) : null;
     if (!item.meta.anilist_id) m = (await post({ ids: [], search: item.title }).catch(() => null))?.data?.byName ?? null;
     for (const n of m?.airingSchedule?.nodes ?? []) {
-      out.push({ kind: 'episode', date: new Date(n.airingAt * 1000).toISOString().slice(0, 10), title: item.title, detail: `Episode ${n.episode}`, number: n.episode, type: 'anime', item_id: item.id, cover_url: item.cover_url });
+      out.push({ kind: 'episode', date: toDay(new Date(n.airingAt * 1000)), title: item.title, detail: `Episode ${n.episode}`, number: n.episode, type: 'anime', item_id: item.id, cover_url: item.cover_url });
     }
   }
 }
@@ -144,7 +147,7 @@ async function games(ctx, fetch, list, out) {
     if (item.meta.igdb_id && ((igdb.client_id && igdb.client_secret) || hubOn(ctx))) {
       const [g] = await igdbQuery(ctx, fetch, igdb, 'games', `fields first_release_date,status; where id = ${Number(item.meta.igdb_id)};`);
       if (g?.first_release_date) {
-        out.push({ kind: 'release', date: new Date(g.first_release_date * 1000).toISOString().slice(0, 10), title: item.title, detail: 'Release day', item_id: item.id, cover_url: item.cover_url });
+        out.push({ kind: 'release', date: toDay(new Date(g.first_release_date * 1000)), title: item.title, detail: 'Release day', item_id: item.id, cover_url: item.cover_url });
       }
       continue;
     }
@@ -156,7 +159,7 @@ async function games(ctx, fetch, list, out) {
     const t = Date.parse(rd.date);
     out.push({
       kind: 'release',
-      date: Number.isNaN(t) ? null : new Date(t).toISOString().slice(0, 10),
+      date: Number.isNaN(t) ? null : toDay(new Date(t)),
       title: item.title,
       detail: Number.isNaN(t) ? `Coming ${rd.date || 'soon'}` : 'Release day',
       item_id: item.id,
@@ -177,7 +180,7 @@ async function movies(ctx, fetch, list, out) {
     let m = null;
     if (item.meta.tmdb_id) m = await get(`/movie/${item.meta.tmdb_id}`);
     else if (item.meta.imdb_id) m = (await get(`/find/${item.meta.imdb_id}?external_source=imdb_id`)).movie_results?.[0] ?? null;
-    if (m?.release_date && m.release_date >= new Date().toISOString().slice(0, 10)) {
+    if (m?.release_date && m.release_date >= toDay()) {
       out.push({ kind: 'release', date: m.release_date, title: item.title, detail: 'In cinemas', type: 'movie', item_id: item.id, cover_url: item.cover_url });
     }
   }
@@ -188,7 +191,7 @@ const releaseDetail = (i) => (i.type === 'movie' ? 'In cinemas' : i.type === 'bo
 // Books and audiobooks you plan to read that aren't out yet: Google Books' publication date.
 async function books(ctx, fetch, list, out) {
   const known = idMap(ctx, 'gbooks'); // title|author → date or null, looked up once
-  const today = new Date().toISOString().slice(0, 10);
+  const today = toDay();
   for (const item of list.filter((i) => i.status !== 'active').slice(0, 40)) {
     const key = `${item.title}|${item.creator ?? ''}`;
     let date = known.get(key);

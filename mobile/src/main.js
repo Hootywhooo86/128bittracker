@@ -63,7 +63,7 @@ device().then(({ store, sync, reminders, updates }) => {
   App.addListener('resume', familyTick);
   App.addListener('resume', autoSyncPlatforms);
   healthTick();
-  setInterval(healthTick, 30 * 60_000);
+  setInterval(healthCheck, 15 * 60_000);
   App.addListener('resume', healthTick);
   sync.startAuto({
     onSynced: () => {
@@ -94,8 +94,21 @@ async function familyTick() {
   if (data?.pulled) window.dispatchEvent(new CustomEvent('tracker:synced'));
 }
 
-// Health Connect: new workouts and today's steps, on open and every 30 minutes.
+// Health Connect: new workouts and the last 7 days' steps, on open and resume,
+// every 30 minutes while on screen, and every 3 hours while the app is still
+// running in the background (Android may pause it sooner; Health Connect keeps
+// the history, so the next open catches up). Nothing runs once Android has
+// closed the app: that would need a native background job (docs/SUNDAY.md, item 3).
+const HEALTH_ON_SCREEN = 30 * 60_000;
+const HEALTH_BACKGROUND = 3 * 3600_000;
+let healthAt = 0;
+function healthCheck() {
+  const every = document.visibilityState === 'visible' ? HEALTH_ON_SCREEN : HEALTH_BACKGROUND;
+  if (Date.now() - healthAt >= every) healthTick();
+}
+
 async function healthTick() {
+  healthAt = Date.now();
   const { request } = await import('./transport.js');
   const { data } = await request('GET', '/health');
   if (!data?.enabled) return;

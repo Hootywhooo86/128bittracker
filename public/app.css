@@ -314,3 +314,12 @@ h3.sub.kind{color:var(--c)}
 .colors{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px;max-width:640px}
 .color-row{display:flex;align-items:center;gap:10px;background:var(--panel);border:3px solid var(--line);padding:6px 10px;cursor:pointer;font-size:14px}
 .color-row input{width:36px;height:28px;border:0;background:none;padding:0;cursor:pointer}
+/* Episode tracker: seasons, then a pixel check per episode. */
+.ep-seasons{margin-bottom:4px}
+.ep-list{display:flex;flex-direction:column;gap:4px;max-height:360px;overflow-y:auto}
+.ep-row{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:var(--panel);border:2px solid var(--line);color:var(--ink);padding:8px 10px;font:inherit;font-size:14px;cursor:pointer}
+.ep-row.watched{border-color:var(--teal-d)}
+.ep-row .ep-n{font-size:9px;color:var(--muted);min-width:30px}
+.ep-row .ep-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ep-row .ep-day{font-size:12px;white-space:nowrap}
+.px-check{flex:none}

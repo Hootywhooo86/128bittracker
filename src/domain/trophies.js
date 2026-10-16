@@ -6,8 +6,10 @@
 //   anime  series finished                                 → golden anime girl
 //   book   audiobook (meta.format 'audiobook') finished     → golden CD with a book on its cover
 //
-// One trophy per item. Once earned it stays on the shelf, even if the item
-// is later reopened: you did it.
+// One trophy per item, and for shows and anime one per finished season (the
+// seasons live inside the one show, src/domain/seasons.js). Once earned it stays
+// on the shelf, even if the item is later reopened: you did it.
+import { isShow, seasonsOf } from './seasons.js';
 
 export const TROPHIES = {
   controller: { name: 'Golden Controller', for: '100% a game' },
@@ -36,30 +38,47 @@ export function trophyFor(item) {
   }
 }
 
-/** Award the item's trophy if it just earned one. Returns the new trophy or null. */
-export function checkTrophy(ctx, item) {
-  const kind = trophyFor(item);
-  if (!kind) return null;
-  const have = ctx.db.prepare('SELECT 1 FROM trophies WHERE item_id = ?').get(item.id);
+function award(ctx, item, kind, season = null) {
+  const have = ctx.db.prepare('SELECT 1 FROM trophies WHERE item_id = ? AND COALESCE(season, 0) = ?').get(item.id, season ?? 0);
   if (have) return null;
-  const season = item.meta?.season ? ` · Season ${item.meta.season}` : '';
-  const title = `${item.title}${season}`;
+  const title = `${item.title}${season ? ` · Season ${season}` : ''}`;
+  // Already earned on its own item (a season that used to be an item of its own): pick it back up.
+  const loose = ctx.db.prepare('SELECT id FROM trophies WHERE item_id IS NULL AND kind = ? AND title = ?').get(kind, title);
+  if (loose) {
+    ctx.db.prepare('UPDATE trophies SET item_id = ?, season = ? WHERE id = ?').run(item.id, season, loose.id);
+    return null;
+  }
   const earned_at = new Date().toISOString();
   ctx.db
-    .prepare('INSERT INTO trophies (item_id, kind, title, earned_at) VALUES (?, ?, ?, ?)')
-    .run(item.id, kind, title, earned_at);
+    .prepare('INSERT INTO trophies (item_id, season, kind, title, earned_at) VALUES (?, ?, ?, ?, ?)')
+    .run(item.id, season, kind, title, earned_at);
   ctx.events.emit(
     'trophy.earned',
-    { kind, trophy: TROPHIES[kind].name, item_id: item.id, type: item.type, title },
+    { kind, trophy: TROPHIES[kind].name, item_id: item.id, type: item.type, title, ...(season ? { season } : {}) },
     { title: `🏆 ${TROPHIES[kind].name} — ${title}` },
   );
-  return { kind, title, earned_at };
+  return { kind, title, earned_at, ...(season ? { season } : {}) };
+}
+
+/** Award the item's trophy (a show: each finished season's) if it just earned one. Returns the newest or null. */
+export function checkTrophy(ctx, item) {
+  if (isShow(item)) {
+    const kind = item.type === 'anime' ? 'anime' : 'tv';
+    let last = null;
+    const seasons = seasonsOf(item);
+    for (const s of Object.keys(seasons).map(Number).sort((a, b) => a - b)) {
+      if (s > 0 && seasons[s].done) last = award(ctx, item, kind, s) ?? last;
+    }
+    return last;
+  }
+  const kind = trophyFor(item);
+  return kind ? award(ctx, item, kind) : null;
 }
 
 export function listTrophies(ctx) {
   return ctx.db
     .prepare(
-      `SELECT t.id, t.item_id, t.kind, t.title, t.earned_at, i.cover_url, i.type
+      `SELECT t.id, t.item_id, t.season, t.kind, t.title, t.earned_at, i.cover_url, i.type
          FROM trophies t LEFT JOIN items i ON i.id = t.item_id
         ORDER BY t.earned_at DESC, t.id DESC`,
     )

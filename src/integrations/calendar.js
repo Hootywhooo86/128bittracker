@@ -7,6 +7,7 @@
 //   movies  TMDB release dates for movies you plan to watch (by TMDB or IMDb id)
 //   books   Google Books publication dates for books / audiobooks you plan to read (no key)
 //   any item with meta.release_date (set by hand) shows on that day
+// Finished shows and anime count too, so a new season shows up when it's announced.
 //
 // Lookups are cached for a few hours; titles without ids are matched by name once.
 // Days are the device's own (toDay: the phone's time zone), never UTC: at 7 PM in
@@ -17,7 +18,8 @@ import { hubOn, routedFetch } from './hub.js';
 import { toDay } from '../domain/dates.js';
 
 const TTL = 6 * 3600_000;
-const WATCHING = "status IN ('active','planned','on_hold')";
+// Shows and anime you finished stay on: their next season is exactly what you don't want to miss.
+const WATCHING = "(status IN ('active','planned','on_hold') OR (type IN ('show','anime') AND status = 'done'))";
 
 const CACHE_VERSION = 3; // bump when entries gain fields
 

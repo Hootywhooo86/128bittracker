@@ -17,6 +17,7 @@ import { createItem, updateItem } from '../domain/library.js';
 import { tx } from '../db/tx.js';
 import { upcoming } from './calendar.js';
 import { lookupShowByImdb, lookupShowById } from './enrich.js';
+import { refreshShows } from './episodes.js';
 import { withCloudStarters } from './starter-lists.js';
 
 const BATCH = 500;
@@ -88,7 +89,11 @@ function ensureUid(ctx, table, id, prefix) {
 
 function itemRow(ctx, i) {
   const meta = JSON.parse(i.meta);
-  const { season, backdrop_url, ...rest } = meta;
+  // A show with its seasons inside keeps meta.season (the one you're on) in meta: its row has no season.
+  const inside = meta.seasons && typeof meta.seasons === 'object';
+  const { season: s, backdrop_url, ...others } = meta;
+  const rest = inside ? { ...others, season: s } : others;
+  const season = inside ? null : s;
   return {
     id: i.uid ?? ensureUid(ctx, 'items', i.id, 'i'),
     type: i.type, title: i.title, creator: i.creator, year: i.year, cover_url: i.cover_url, backdrop_url: backdrop_url ?? null,
@@ -115,10 +120,10 @@ function collectChanges(ctx, since) {
     .prepare('SELECT t.*, i.uid AS item_uid FROM trophies t LEFT JOIN items i ON i.id = t.item_id WHERE t.uid IS NULL OR t.earned_at > ?')
     .all(after)
     .map((t) => {
-      // Two devices earning the same item's trophy make one trophy, not two.
-      const uid = t.uid ?? (t.item_uid ? `tr-${t.item_uid}` : newUid('tr'));
+      // Two devices earning the same item's (season's) trophy make one trophy, not two.
+      const uid = t.uid ?? (t.item_uid ? `tr-${t.item_uid}${t.season ? `-s${t.season}` : ''}` : newUid('tr'));
       if (!t.uid) ctx.db.prepare('UPDATE trophies SET uid = ? WHERE id = ?').run(uid, t.id);
-      return { id: uid, kind: t.kind, title: t.title, item_id: t.item_uid, earned_at: t.earned_at, updated_at: t.earned_at };
+      return { id: uid, kind: t.kind, title: t.title, item_id: t.item_uid, season: t.season ?? null, earned_at: t.earned_at, updated_at: t.earned_at };
     });
   const tombs = ctx.db.prepare('SELECT * FROM tombstones').all();
   for (const t of tombs) {
@@ -147,7 +152,11 @@ async function push(ctx, rpc) {
   try {
     const cal = await upcoming(ctx);
     const uidOf = (id) => (id ? ctx.db.prepare('SELECT uid FROM items WHERE id = ?').get(id)?.uid ?? null : null);
-    const calendar = cal.filter((e) => e.date).slice(0, 300).map((e) => ({ date: e.date, kind: e.kind, title: e.title, detail: e.detail ?? null, item_id: uidOf(e.item_id) }));
+    const calendar = cal.filter((e) => e.date).slice(0, 300).map((e) => ({
+      date: e.date, kind: e.kind, title: e.title, detail: e.detail ?? null, item_id: uidOf(e.item_id),
+      // Which episode, so Up Next can say "S2 E1 · Oct 20".
+      data: Object.fromEntries(Object.entries({ season: e.season, number: e.number, type: e.type, format: e.format }).filter(([, v]) => v != null)),
+    }));
     await rpc('tracker_push', { payload: { calendar } });
   } catch (err) {
     if (err instanceof HttpError && err.status === 502) throw err;
@@ -227,14 +236,23 @@ function applyListItem(ctx, r) {
 }
 
 function applyTrophy(ctx, r) {
-  if (r.deleted || ctx.db.prepare('SELECT 1 FROM trophies WHERE uid = ?').get(r.id)) return;
+  if (r.deleted) return;
   const item = r.item_id ? ctx.db.prepare('SELECT id FROM items WHERE uid = ?').get(r.item_id) : null;
-  const mine = item ? ctx.db.prepare('SELECT id, uid FROM trophies WHERE item_id = ?').get(item.id) : null;
+  const season = r.season ?? (['tv', 'anime'].includes(r.kind) ? Number(String(r.title ?? '').match(/Season (\d+)$/)?.[1]) || null : null);
+  const known = ctx.db.prepare('SELECT id, item_id FROM trophies WHERE uid = ?').get(r.id);
+  if (known) {
+    // Its show was folded into one item with seasons inside: follow it there.
+    if (item && known.item_id !== item.id && !ctx.db.prepare('SELECT 1 FROM trophies WHERE item_id = ? AND COALESCE(season, 0) = ? AND id <> ?').get(item.id, season ?? 0, known.id)) {
+      ctx.db.prepare('UPDATE trophies SET item_id = ?, season = ? WHERE id = ?').run(item.id, season, known.id);
+    }
+    return;
+  }
+  const mine = item ? ctx.db.prepare('SELECT id, uid FROM trophies WHERE item_id = ? AND COALESCE(season, 0) = ?').get(item.id, season ?? 0) : null;
   if (mine) {
     if (!mine.uid) ctx.db.prepare('UPDATE trophies SET uid = ? WHERE id = ?').run(r.id, mine.id);
     return;
   }
-  ctx.db.prepare('INSERT INTO trophies (item_id, kind, title, earned_at, uid) VALUES (?, ?, ?, ?, ?)').run(item?.id ?? null, r.kind, r.title, r.earned_at, r.id);
+  ctx.db.prepare('INSERT INTO trophies (item_id, season, kind, title, earned_at, uid) VALUES (?, ?, ?, ?, ?, ?)').run(item?.id ?? null, season, r.kind, r.title, r.earned_at, r.id);
 }
 
 async function pull(ctx, rpc) {
@@ -243,7 +261,9 @@ async function pull(ctx, rpc) {
   const trophies = [];
   let n = 0;
   tx(ctx.db, () => {
-    for (const r of res.items ?? []) { const t = applyItem(ctx, r); if (t) trophies.push(t); n++; }
+    // Deletes first: a season folded into its show lets go of its trophy before the show picks it up.
+    const items = [...(res.items ?? [])].sort((a, b) => Number(!!b.deleted) - Number(!!a.deleted));
+    for (const r of items) { const t = applyItem(ctx, r); if (t) trophies.push(t); n++; }
     for (const r of res.lists ?? []) { applyList(ctx, r); n++; }
     for (const r of res.list_items ?? []) { applyListItem(ctx, r); n++; }
     for (const r of res.trophies ?? []) { applyTrophy(ctx, r); n++; }
@@ -252,36 +272,21 @@ async function pull(ctx, rpc) {
   return { pulled: n, trophies };
 }
 
-// Shows watched in 128bitPlay arrive with an IMDb id but maybe without the
-// season's length: fill it in (and spot anime) so seasons can finish. Shows
-// found by title get their IMDb id, so Play can open them.
+// Shows and anime: each season's length and first air date (TVmaze / AniList), so
+// seasons finish, and a season announced after the ones you've watched brings the
+// show back to Up Next and Coming up (src/integrations/episodes.js). Also spots anime.
 async function enrich(ctx) {
   const fetch = ctx.fetch ?? globalThis.fetch;
-  const rows = ctx.db
-    .prepare(`SELECT id, type, meta, progress, progress_total FROM items
-               WHERE type IN ('show','anime') AND status IN ('active','planned','on_hold')
-                 AND (progress_total IS NULL OR json_extract(meta, '$.imdb_id') IS NULL) ORDER BY updated_at DESC LIMIT 50`)
-    .all();
-  let done = 0;
-  for (const r of rows) {
-    if (done >= ENRICH_PER_SYNC) break;
+  for (const r of ctx.db.prepare(`SELECT id, meta FROM items WHERE type = 'show' AND status <> 'dropped' AND json_extract(meta, '$.enriched_at') IS NULL LIMIT ${ENRICH_PER_SYNC}`).all()) {
     const meta = JSON.parse(r.meta);
-    if (meta.enriched_at && Date.now() - Date.parse(meta.enriched_at) < 7 * 86400_000) continue;
-    done++;
     const show = meta.tvmaze_id ? await lookupShowById(fetch, meta.tvmaze_id) : meta.imdb_id ? await lookupShowByImdb(fetch, meta.imdb_id) : null;
     const patch = { meta: { enriched_at: new Date().toISOString() } };
-    if (show) {
-      if (show.imdb && !meta.imdb_id) patch.meta.imdb_id = show.imdb;
-      if (show.tvmaze_id && !meta.tvmaze_id) patch.meta.tvmaze_id = show.tvmaze_id;
-      const total = meta.season ? show.seasons[meta.season] : null;
-      if (total && !r.progress_total) {
-        patch.progress_total = total;
-        if (r.progress >= total) patch.status = 'done';
-      }
-      if (show.anime && r.type === 'show') patch.type = 'anime';
-    }
+    if (show?.imdb && !meta.imdb_id) patch.meta.imdb_id = show.imdb;
+    if (show?.tvmaze_id && !meta.tvmaze_id) patch.meta.tvmaze_id = show.tvmaze_id;
+    if (show?.anime) patch.type = 'anime';
     updateItem(ctx, r.id, patch);
   }
+  await refreshShows(ctx, { limit: ENRICH_PER_SYNC });
 }
 
 const running = new WeakMap();

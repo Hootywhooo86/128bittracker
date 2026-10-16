@@ -595,6 +595,7 @@ async function addToListModal(list) {
 // How far through, and where you are right now: meta.pct / meta.now come from
 // 128bitPlay (or the % field); episodes and pages count up from progress.
 const EPISODIC = new Set(['show', 'anime', 'podcast']);
+const SHOWISH = new Set(['show', 'anime']);
 function progressOf(i) {
   const m = i.meta ?? {};
   const now = m.now && typeof m.now === 'object' ? m.now : null;
@@ -721,14 +722,14 @@ function itemDetail(i) {
   const unit = META.item_types[i.type]?.unit ?? '';
   modal(`${i.icon} ${i.title}`, `
     <p class="muted" style="font-size:13px;margin:-8px 0 16px">${esc(i.type)}${i.meta?.season ? ' · Season ' + esc(i.meta.season) : ''}${i.creator ? ' · ' + esc(i.creator) : ''}${i.year ? ' · ' + i.year : ''}${i.source !== 'manual' ? ' · synced from ' + esc(i.source) : ''}</p>
-    ${i.trophy ? `<div class="trophy-row">${trophySvg(i.trophy.kind, 56)}<div><div class="px" style="font-size:9px;color:#ffc72c;line-height:1.7">${TROPHY_NAMES[i.trophy.kind]}</div><div class="muted" style="font-size:12px">Earned ${new Date(i.trophy.earned_at).toLocaleDateString()}</div></div></div>` : ''}
+    ${(i.trophies?.length ? i.trophies : i.trophy ? [i.trophy] : []).map((t) => `<div class="trophy-row">${trophySvg(t.kind, 56)}<div><div class="px" style="font-size:9px;color:#ffc72c;line-height:1.7">${TROPHY_NAMES[t.kind]}${t.season ? ` · SEASON ${t.season}` : ''}</div><div class="muted" style="font-size:12px">Earned ${new Date(t.earned_at).toLocaleDateString()}</div></div></div>`).join('')}
     ${i.type === 'game' ? `<div class="row" style="margin-bottom:14px">${i.meta?.playtime_minutes ? `<span class="muted" style="font-size:13px">⏱ ${fmtMin(i.meta.playtime_minutes)} on ${esc(i.meta.platform ?? i.source)}</span>` : ''}${i.meta?.achievements ? `<span class="muted" style="font-size:13px">🏅 ${i.meta.achievements.unlocked}/${i.meta.achievements.total} achievements</span>` : ''}
       ${i.trophy ? '' : `<button class="btn ghost small" data-perfect="${i.meta?.perfect ? '0' : '1'}">${i.meta?.perfect ? 'UNMARK 100%' : '★ MARK 100%'}</button>`}</div>` : ''}
     <div class="chips" role="group" aria-label="Status">${META.statuses.map((s) => `<button class="chip" data-set-status="${s}" aria-pressed="${i.status === s}">${STATUS_LABEL[s].toLowerCase()}</button>`).join('')}</div>
     <div class="field"><label>LISTS</label><div class="chips" id="item-lists"><span class="muted" style="font-size:13px">…</span></div></div>
     <div class="field"><label>RATING</label><div class="rating">${Array.from({ length: 10 }, (_, n) => `<button data-rate="${n + 1}" class="${i.rating && n < i.rating ? 'on' : ''}" aria-label="Rate ${n + 1}">${n + 1}</button>`).join('')}</div></div>
     ${(() => { const { pct, label } = progressOf(i); return pct != null || label ? `<div class="where"><div class="mini-bar"><span style="width:${pct ?? 0}%"></span></div><span class="muted">${esc(i.status === 'done' ? 'Finished' : label || pct + '%')}</span></div>` : ''; })()}
-    <h2 class="sec">LOG A SESSION</h2>
+    ${SHOWISH.has(i.type) ? `<h2 class="sec">EPISODES</h2><div id="ep-tracker"><span class="muted" style="font-size:13px">Loading seasons…</span></div>` : `    <h2 class="sec">LOG A SESSION</h2>
     <form data-session class="grid2">
       <div class="field"><label for="s-min">MINUTES</label><input class="input" id="s-min" name="minutes" type="number" min="0" max="1440" placeholder="45"></div>
       <div class="field"><label for="s-prog">PROGRESS ${unit ? '(' + esc(unit) + ')' : ''}</label><input class="input" id="s-prog" name="progress" type="number" min="0" step="any" placeholder="${esc(i.progress ?? 0)}${i.progress_total ? ' / ' + i.progress_total : ''}"></div>
@@ -737,6 +738,7 @@ function itemDetail(i) {
     </form>
     <p class="muted" style="font-size:13px">Total time: <b style="color:var(--ink)">${fmtMin(i.minutes_total)}</b> · Progress: <b style="color:var(--ink)">${fmtNum(i.progress)}${i.progress_total ? ' / ' + i.progress_total : ''}</b></p>
     ${i.sessions.length ? `<div class="sessions">${i.sessions.map((s) => `<div>${new Date(s.at).toLocaleDateString()} — ${s.minutes ? fmtMin(s.minutes) : ''}${s.progress != null ? ` → ${fmtNum(s.progress)}` : ''}${s.source !== 'manual' ? ` <span class="pill">${esc(s.source)}</span>` : ''}</div>`).join('')}</div>` : ''}
+`}
     <h2 class="sec">REVIEW</h2>
     <form data-review><div class="field"><textarea class="input" name="review" maxlength="5000" placeholder="What did you think?" aria-label="Review">${esc(i.review ?? '')}</textarea></div>
       <div class="row"><button class="btn small">SAVE REVIEW</button><span class="spacer"></span><button type="button" class="btn ghost small" data-edit-item>EDIT</button><button type="button" class="btn pink small" data-del-item>DELETE</button></div></form>`,
@@ -745,7 +747,8 @@ function itemDetail(i) {
     m.querySelectorAll('[data-set-status]').forEach((b) => b.addEventListener('click', guard(() => reopen({ status: b.dataset.setStatus }))));
     m.querySelectorAll('[data-rate]').forEach((b) => b.addEventListener('click', guard(() => reopen({ rating: Number(b.dataset.rate) }))));
     m.querySelector('[data-perfect]')?.addEventListener('click', guard(() => reopen({ meta: { perfect: m.querySelector('[data-perfect]').dataset.perfect === '1' ? true : null } })));
-    m.querySelector('[data-session]').addEventListener('submit', guard(async (e) => {
+    if (SHOWISH.has(i.type)) episodeTracker(m.querySelector('#ep-tracker'), i);
+    m.querySelector('[data-session]')?.addEventListener('submit', guard(async (e) => {
       e.preventDefault();
       const f = formData(e.target);
       if (f.pct != null && f.pct !== '') await api('PATCH', `/items/${i.id}`, { meta: { pct: Math.max(0, Math.min(100, Number(f.pct))), now: null } });
@@ -772,6 +775,54 @@ function itemDetail(i) {
       await api('DELETE', `/items/${i.id}`); close(); toast('DELETED'); renderLibrary();
     }));
   });
+}
+
+// A pixel check box: an episode you've watched.
+const pxCheck = (on) => `<svg class="px-check${on ? ' on' : ''}" viewBox="0 0 10 10" width="22" height="22" aria-hidden="true" shape-rendering="crispEdges">
+  <rect x="0" y="0" width="10" height="10" fill="${on ? 'var(--teal)' : 'var(--panel-2)'}"/><rect x="1" y="1" width="8" height="8" fill="${on ? 'var(--teal)' : 'var(--bg)'}"/>
+  ${on ? '<rect x="2" y="5" width="1" height="1" fill="#0b0b16"/><rect x="3" y="6" width="1" height="1" fill="#0b0b16"/><rect x="4" y="5" width="1" height="1" fill="#0b0b16"/><rect x="5" y="4" width="1" height="1" fill="#0b0b16"/><rect x="6" y="3" width="1" height="1" fill="#0b0b16"/><rect x="7" y="2" width="1" height="1" fill="#0b0b16"/><rect x="4" y="6" width="1" height="1" fill="#0b0b16"/>' : ''}</svg>`;
+
+/** Seasons and episodes of a show: tick what you've watched; each finished season earns its golden trophy. */
+async function episodeTracker(el, item) {
+  let view;
+  try { view = await api('GET', `/items/${item.id}/episodes`); } catch (err) { el.innerHTML = `<p class="muted" style="font-size:13px">${esc(err.message)}</p>`; return; }
+  let pick = view.season;
+  const today = todayStr();
+  const fmtDay = (d) => new Date(d + 'T12:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: d.slice(0, 4) === today.slice(0, 4) ? undefined : 'numeric' });
+  const draw = () => {
+    if (!view.seasons.length) {
+      el.innerHTML = '<p class="muted" style="font-size:13px">No episode list found for this show yet. Episodes you watch in 128bitPlay still count here.</p>';
+      return;
+    }
+    const cur = view.seasons.find((s) => s.season === pick) ?? view.seasons[0];
+    pick = cur.season;
+    el.innerHTML = `
+      <div class="chips ep-seasons" role="group" aria-label="Season">${view.seasons.map((s) => `<button class="chip" data-season="${s.season}" aria-pressed="${s.season === pick}">
+        ${s.done ? '🏆 ' : ''}S${s.season} <span class="muted">${s.watched}/${s.total ?? '?'}</span>${!s.watched && s.first_air && s.first_air > today ? ` <span class="muted">· ${esc(fmtDay(s.first_air))}</span>` : ''}</button>`).join('')}</div>
+      <div class="row" style="margin:6px 0 8px"><span class="muted" style="font-size:13px">${cur.done ? `✓ Season ${cur.season} finished` : cur.first_air && cur.first_air > today && !cur.watched ? `Season ${cur.season} starts ${esc(fmtDay(cur.first_air))}` : `Season ${cur.season} · ${cur.watched} of ${cur.total ?? '?'} watched`}</span>
+        <span class="spacer"></span>${cur.total && cur.watched < cur.total ? `<button class="btn ghost small" data-season-all>✓ WHOLE SEASON</button>` : ''}</div>
+      <div class="ep-list">${cur.episodes.map((e) => {
+        const future = e.air_date && e.air_date > today;
+        return `<button class="ep-row${e.watched ? ' watched' : ''}" data-ep="${e.number}" aria-pressed="${e.watched}" aria-label="Episode ${e.number}${e.watched ? ', watched' : ''}">
+          ${pxCheck(e.watched)}<span class="ep-n px">E${e.number}</span><span class="ep-name">${esc(e.name ?? `Episode ${e.number}`)}</span>
+          <span class="muted ep-day">${e.air_date ? (future ? 'airs ' : '') + esc(fmtDay(e.air_date)) : ''}</span></button>`;
+      }).join('')}</div>`;
+    el.querySelectorAll('[data-season]').forEach((b) => b.addEventListener('click', () => { pick = Number(b.dataset.season); draw(); }));
+    const set = guard(async (upto) => {
+      const before = view.seasons.filter((s) => s.done).length;
+      view = await api('POST', `/items/${item.id}/episodes`, { season: pick, upto });
+      if (view.seasons.filter((s) => s.done).length > before) toast(`🏆 SEASON ${pick} FINISHED`);
+      draw();
+      renderLibrary().catch(() => {});
+    });
+    el.querySelector('[data-season-all]')?.addEventListener('click', () => set(cur.total));
+    // Tap an episode: watched up to it. Tap a watched one: un-watched from there.
+    el.querySelectorAll('[data-ep]').forEach((b) => b.addEventListener('click', () => {
+      const n = Number(b.dataset.ep);
+      set(n <= cur.watched ? n - 1 : n);
+    }));
+  };
+  draw();
 }
 
 // ---------- TIMELINE ----------

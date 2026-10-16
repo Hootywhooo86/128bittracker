@@ -3,6 +3,7 @@
 import { HttpError, notFound } from '../api/errors.js';
 import { tx } from '../db/tx.js';
 import { checkTrophy } from './trophies.js';
+import { finishAll, isShow, setSeasonProgress } from './seasons.js';
 
 export const ITEM_TYPES = {
   game:    { icon: '🎮', unit: '%' },
@@ -62,7 +63,7 @@ function validate(input, partial) {
   return out;
 }
 
-function hydrate(row) {
+export function hydrate(row) {
   if (!row) return row;
   return { ...row, meta: JSON.parse(row.meta), icon: ITEM_TYPES[row.type]?.icon ?? '📦' };
 }
@@ -77,7 +78,9 @@ export function getItem(ctx, id) {
   const item = hydrate(getRow(ctx, id));
   item.sessions = ctx.db.prepare('SELECT * FROM sessions WHERE item_id = ? ORDER BY at DESC LIMIT 50').all(id);
   item.minutes_total = ctx.db.prepare('SELECT COALESCE(SUM(minutes),0) AS m FROM sessions WHERE item_id = ?').get(id).m;
-  item.trophy = ctx.db.prepare('SELECT kind, title, earned_at FROM trophies WHERE item_id = ?').get(id) ?? null;
+  // A show has one per finished season: the newest is its badge.
+  item.trophies = ctx.db.prepare('SELECT kind, season, title, earned_at FROM trophies WHERE item_id = ? ORDER BY COALESCE(season, 0)').all(id);
+  item.trophy = item.trophies.at(-1) ?? null;
   item.collections = ctx.db
     .prepare('SELECT c.id, c.name FROM collections c JOIN collection_items ci ON ci.collection_id = c.id WHERE ci.item_id = ?')
     .all(id);
@@ -141,6 +144,26 @@ export function createItem(ctx, input, { source = 'manual', externalId = null, q
   return withTrophy(ctx, item);
 }
 
+/**
+ * A show's progress and "done" are about its seasons (src/domain/seasons.js): progress
+ * is the season you're on, and marking it done finishes the seasons out so far (a new
+ * season announced keeps it in progress, at that season). Changes that bring their own
+ * meta.seasons (the episode tracker, the cloud) go in as they are.
+ */
+function showInput(item, input) {
+  if (!isShow({ type: input.type ?? item.type }) || input.meta?.seasons) return input;
+  if (input.status === 'done' && item.status !== 'done') {
+    const p = finishAll(item);
+    // Not "done" while a later season is out there: in progress, at that season.
+    return { ...input, ...p, meta: { ...(input.meta ?? {}), ...p.meta }, status: p.status ?? item.status };
+  }
+  if (input.progress !== undefined && input.progress !== item.progress) {
+    const p = setSeasonProgress(item, item.meta?.season ?? 1, input.progress);
+    return { ...input, ...p, meta: { ...(input.meta ?? {}), ...p.meta }, status: input.status ?? p.status };
+  }
+  return input;
+}
+
 /** Award any trophy the item just earned; flags it as `new_trophy` for the UI. */
 function withTrophy(ctx, item) {
   const earned = checkTrophy(ctx, item);
@@ -149,6 +172,7 @@ function withTrophy(ctx, item) {
 
 export function updateItem(ctx, id, input) {
   const before = getRow(ctx, id);
+  input = showInput(hydrate({ ...before }), input);
   const v = validate(input, true);
   // meta is merged, so one feature (season, 100%, synced achievements) never wipes another's keys.
   if (v.meta !== undefined) {
@@ -202,7 +226,7 @@ export function addSession(ctx, id, input = {}, { source = 'manual', at } = {}) 
       .prepare('INSERT INTO sessions (item_id, minutes, progress, note, at, source) VALUES (?, ?, ?, ?, ?, ?)')
       .run(id, minutes, progress, input.note ? String(input.note).slice(0, 500) : null, when, source);
     const patch = { updated_at: new Date().toISOString() };
-    if (progress != null) patch.progress = progress;
+    if (progress != null && !isShow(item)) patch.progress = progress;
     if (item.status === 'planned' || item.status === 'on_hold') {
       patch.status = 'active';
       patch.started_at = item.started_at ?? when;
@@ -210,6 +234,8 @@ export function addSession(ctx, id, input = {}, { source = 'manual', at } = {}) 
     const keys = Object.keys(patch);
     ctx.db.prepare(`UPDATE items SET ${keys.map((k) => `${k} = ?`).join(', ')} WHERE id = ?`).run(...keys.map((k) => patch[k]), id);
   });
+  // A show's progress is its current season's: put it there too.
+  if (isShow(item) && progress != null) updateItem(ctx, id, { progress });
   const updated = getItem(ctx, id);
   const what = minutes ? `${Math.round(minutes)} min` : `progress ${progress}`;
   ctx.events.emit('item.session', { ...ref(updated), minutes, progress }, { title: `${updated.icon} ${updated.title} · ${what}`, occurred_at: when });

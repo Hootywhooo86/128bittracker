@@ -173,6 +173,27 @@ export const MIGRATIONS = [
   UPDATE items SET meta = json_set(meta, '$.format', 'audiobook'), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
    WHERE type = 'book' AND source = 'hardcover' AND json_extract(meta, '$.format') IS NULL;
   `,
+  // 7 — a show's seasons live inside it, and each finished season earns its own
+  // trophy: trophies are one per item and season.
+  `
+  CREATE TABLE trophies_new (
+    id         INTEGER PRIMARY KEY,
+    item_id    INTEGER,
+    season     INTEGER,
+    kind       TEXT NOT NULL,
+    title      TEXT NOT NULL,
+    earned_at  TEXT NOT NULL,
+    uid        TEXT
+  );
+  INSERT INTO trophies_new (id, item_id, season, kind, title, earned_at, uid)
+    SELECT t.id, t.item_id,
+           CASE WHEN t.kind IN ('tv', 'anime') THEN COALESCE(CAST(json_extract(i.meta, '$.season') AS INTEGER), 1) END,
+           t.kind, t.title, t.earned_at, t.uid
+      FROM trophies t LEFT JOIN items i ON i.id = t.item_id;
+  DROP TABLE trophies;
+  ALTER TABLE trophies_new RENAME TO trophies;
+  CREATE UNIQUE INDEX trophies_item_season ON trophies(item_id, COALESCE(season, 0)) WHERE item_id IS NOT NULL;
+  `,
 ];
 
 export function migrate(db) {

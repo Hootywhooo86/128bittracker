@@ -105,7 +105,7 @@ await familySignIn(p3, { email: 'b@x.com', password: 'pw' });
 r = await familySync(p3);
 assert.equal(r.error, undefined, r.error);
 assert.equal(listItems(p3, {}).length, 0, 'B sees none of A');
-assert.equal(listCollections(p3).length, 0);
+assert.deepEqual(listCollections(p3).map((l) => l.item_count), [0, 0, 0, 0, 0], 'B gets its own five empty starter lists');
 
 // B on A's phone: refused, with the sign-in to open B's own library instead.
 await assert.rejects(() => familySignIn(p1, { email: 'b@x.com', password: 'pw' }), (err) => err.status === 409 && err.extra.code === 'other_account' && err.extra.account.user_id === USERS['b@x.com']);

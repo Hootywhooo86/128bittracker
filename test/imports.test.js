@@ -230,7 +230,9 @@ test('calendar: next episodes and game releases, cached', async () => {
     calls++;
     const u = String(url);
     const body = (x) => new Response(JSON.stringify(x), { status: 200 });
-    if (u.includes('tvmaze.com/singlesearch')) return body({ id: 44933 });
+    if (u.includes('tvmaze.com/singlesearch')) return body({ id: u.includes('Finished') ? 55 : 44933 });
+    // A show you finished: its new season still shows up.
+    if (u.includes('tvmaze.com/shows/55/episodes')) return body([{ airdate: later.toISOString().slice(0, 10), season: 2, number: 1, name: 'Back' }]);
     if (u.includes('tvmaze.com/shows/44933/episodes')) {
       return body([
         { airdate: '2020-01-01', season: 2, number: 10, name: 'Old' },
@@ -260,6 +262,7 @@ test('calendar: next episodes and game releases, cached', async () => {
     ['Severance', 'S3 E1 · Return', 'show'],
     ['Frieren S3', 'Episode 12', 'anime'],
     ['Severance', 'S3 E2 · Next', 'show'],
+    ['Finished Show', 'S2 E1 · Back', 'show'],
     ['Wind and Truth II', 'Audiobook out', 'book'],
     ['Set By Hand', 'In cinemas', 'movie'],
     ['Hades III', 'Coming Q4 2026', undefined],

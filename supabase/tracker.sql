@@ -82,6 +82,9 @@ create table if not exists public.tracker_calendar (
 );
 create index if not exists tracker_calendar_day on public.tracker_calendar (user_id, day);
 
+-- A show's trophies are one per finished season.
+alter table public.tracker_trophies add column if not exists season int;
+
 create table if not exists public.tracker_profiles (
   user_id uuid primary key references auth.users on delete cascade,
   handle text unique,
@@ -132,12 +135,20 @@ alter table public.tracker_connections enable row level security;
 alter table public.tracker_oauth_states enable row level security;
 alter table public.tracker_proxy_usage enable row level security;
 
+-- A number from app data, or null when it isn't one.
+create or replace function public.tracker_num(v jsonb) returns numeric
+language sql immutable set search_path = public as $$
+  select case when jsonb_typeof(v) = 'number' then v::text::numeric end
+$$;
+
 -- One item as every app sees it.
 create or replace function public.tracker_item_json(i public.tracker_items) returns jsonb
 language sql immutable set search_path = public as $$
   select jsonb_build_object('id', i.id, 'type', i.type, 'title', i.title, 'creator', i.creator, 'year', i.year,
     'poster', i.cover_url, 'backdrop', i.backdrop_url, 'status', i.status, 'progress', i.progress,
-    'progress_total', i.progress_total, 'rating', i.rating, 'season', i.season, 'ids', i.ids,
+    'progress_total', i.progress_total, 'rating', i.rating,
+    -- a show: the season you're on, and every season's progress ({"1": {"p": 10, "n": 10, "done": …}})
+    'season', coalesce(i.season, tracker_num(i.meta -> 'season')::int), 'seasons', i.meta -> 'seasons', 'ids', i.ids,
     'pct', i.meta -> 'pct', 'now', i.meta -> 'now',
     'started_at', i.started_at, 'finished_at', i.finished_at, 'updated_at', i.updated_at)
 $$;
@@ -210,14 +221,14 @@ begin
     where excluded.updated_at > t.updated_at;
   get diagnostics c = row_count; n := n + c;
 
-  insert into tracker_trophies as t (user_id, id, kind, title, item_id, earned_at, updated_at, deleted, synced_at)
-  select me, left(r ->> 'id', 80), left(r ->> 'kind', 24), left(coalesce(r ->> 'title', '?'), 200), left(r ->> 'item_id', 80),
+  insert into tracker_trophies as t (user_id, id, kind, title, item_id, season, earned_at, updated_at, deleted, synced_at)
+  select me, left(r ->> 'id', 80), left(r ->> 'kind', 24), left(coalesce(r ->> 'title', '?'), 200), left(r ->> 'item_id', 80), (r ->> 'season')::int,
       coalesce((r ->> 'earned_at')::timestamptz, now()), coalesce((r ->> 'updated_at')::timestamptz, now()),
       coalesce((r ->> 'deleted')::boolean, false), now()
     from jsonb_array_elements(coalesce(payload -> 'trophies', '[]')) r
    where r ->> 'id' is not null and r ->> 'kind' is not null
   on conflict (user_id, id) do update set
-      kind = excluded.kind, title = excluded.title, item_id = excluded.item_id, earned_at = excluded.earned_at,
+      kind = excluded.kind, title = excluded.title, item_id = excluded.item_id, season = coalesce(excluded.season, t.season), earned_at = excluded.earned_at,
       updated_at = excluded.updated_at, deleted = excluded.deleted, synced_at = now()
     where excluded.updated_at > t.updated_at;
   get diagnostics c = row_count; n := n + c;
@@ -288,12 +299,19 @@ language sql stable security definer set search_path = public as $$
 $$;
 
 -- Continue watching: shows and anime in progress, with the next episode, most recent first.
+-- A season that hasn't aired yet (a show you caught up on) comes with its date: next.air_date.
 create or replace function public.get_up_next(max_rows int default 50) returns jsonb
 language sql stable security definer set search_path = public as $$
-  select coalesce(jsonb_agg(tracker_item_json(i) || jsonb_build_object(
-           'next', jsonb_build_object('season', coalesce(i.season, 1), 'number', floor(i.progress)::int + 1),
-           'last_watched_at', i.updated_at) order by i.updated_at desc), '[]')
-    from (select * from tracker_items t
+  select coalesce(jsonb_agg(tracker_item_json(i.t) || jsonb_build_object(
+           'next', jsonb_strip_nulls(jsonb_build_object('season', i.nseason, 'number', i.nnum, 'air_date', i.air)),
+           'last_watched_at', (i.t).updated_at) order by (i.t).updated_at desc), '[]')
+    from (select t, x.nseason, x.nnum,
+                 (select min(c.day) from tracker_calendar c
+                   where c.user_id = t.user_id and c.item_id = t.id and c.day >= current_date - 1
+                     and coalesce(tracker_num(c.data -> 'season')::int, x.nseason) = x.nseason
+                     and coalesce(tracker_num(c.data -> 'number')::int, x.nnum) = x.nnum) as air
+            from tracker_items t,
+                 lateral (select coalesce(t.season, tracker_num(t.meta -> 'season')::int, 1) as nseason, floor(t.progress)::int + 1 as nnum) x
            where t.user_id = tracker_me() and not t.deleted and t.status = 'active' and t.type in ('show', 'anime')
              and (t.progress_total is null or t.progress < t.progress_total)
            order by t.updated_at desc limit least(max_rows, 200)) i
@@ -457,10 +475,122 @@ begin
   return jsonb_build_object('item_id', iid);
 end $$;
 
+-- ---------- Shows: one item, its seasons inside ----------
+-- meta.seasons = {"1": {"p": 10, "n": 10, "done": "…"}, "2": {"p": 0, "a": "2026-10-20"}}: per season the
+-- episodes watched (p), its length when known (n), first air date (a), and when you finished it.
+-- meta.season is the season you're on; progress / progress_total are that season's (Up Next: S2 E1).
+-- A show is only done when every season out there is watched: a new season announced brings it back.
+-- Same rules as the Tracker app (src/domain/seasons.js).
+create or replace function public.tracker_show_settle(it public.tracker_items) returns public.tracker_items
+language plpgsql stable set search_path = public as $$
+declare
+  ss jsonb := coalesce(it.meta -> 'seasons', '{}');
+  out jsonb := '{}';
+  k text; x jsonb; s int; p numeric; n numeric;
+  last_done int := 0; maxs int := 0; any_watch boolean := false; any_done boolean := false;
+  open_part int; open_after int; open_any int; cur int;
+begin
+  if jsonb_typeof(ss) <> 'object' then ss := '{}'; end if;
+  -- An item from before seasons lived inside: its one season.
+  if ss = '{}' and (it.progress > 0 or it.status = 'done' or it.season is not null) then
+    s := coalesce(it.season, tracker_num(it.meta -> 'season')::int, 1);
+    n := coalesce(it.progress_total, case when it.status = 'done' then greatest(floor(it.progress), 1) end);
+    ss := jsonb_build_object(s::text, jsonb_strip_nulls(jsonb_build_object(
+      'p', case when it.status = 'done' then n else floor(it.progress) end, 'n', n,
+      'done', case when it.status = 'done' then coalesce(it.finished_at, now()) end)));
+  end if;
+  for k, x in select * from jsonb_each(ss) loop
+    continue when k !~ '^[0-9]{1,4}$' or jsonb_typeof(x) <> 'object';
+    s := k::int;
+    continue when s < 1;
+    p := greatest(coalesce(tracker_num(x -> 'p'), 0), 0);
+    n := tracker_num(x -> 'n');
+    x := jsonb_set(x, '{p}', to_jsonb(p));
+    if n is not null and n > 0 and p >= n then x := jsonb_set(x, '{done}', coalesce(x -> 'done', to_jsonb(now())));
+    else x := x - 'done'; end if;
+    out := out || jsonb_build_object(k, x);
+    if x ? 'done' then any_done := true; last_done := greatest(last_done, s); end if;
+    if p > 0 then any_watch := true; end if;
+    maxs := greatest(maxs, s);
+  end loop;
+  select max(e.k::int) into open_part from jsonb_each(out) e(k, v) where not e.v ? 'done' and coalesce(tracker_num(e.v -> 'p'), 0) > 0;
+  select min(e.k::int) into open_after from jsonb_each(out) e(k, v) where not e.v ? 'done' and e.k::int > last_done;
+  select min(e.k::int) into open_any from jsonb_each(out) e(k, v) where not e.v ? 'done';
+  cur := coalesce(open_part, open_after, open_any, nullif(maxs, 0), 1);
+  if it.status not in ('on_hold', 'dropped') then
+    if any_done and open_part is null and open_after is null then it.status := 'done';
+    elsif any_watch or any_done then it.status := 'active'; end if;
+  end if;
+  it.season := null;
+  it.meta := it.meta || jsonb_build_object('seasons', out, 'season', cur);
+  it.progress := coalesce(tracker_num(out -> cur::text -> 'p'), 0);
+  it.progress_total := tracker_num(out -> cur::text -> 'n');
+  if it.status = 'done' then it.finished_at := coalesce(it.finished_at, now()); end if;
+  if it.status = 'active' then it.started_at := coalesce(it.started_at, now()); end if;
+  return it;
+end $$;
+
+-- The library's show (or anime) another app means, by any id it knows, else by name. Internal.
+create or replace function public.tracker_find_show(me uuid, item jsonb) returns public.tracker_items
+language plpgsql stable security definer set search_path = public as $$
+declare it tracker_items;
+begin
+  if jsonb_typeof(item -> 'ids') = 'object' and item -> 'ids' <> '{}' then
+    select i.* into it from tracker_items i, jsonb_each(item -> 'ids') k
+     where i.user_id = me and i.type in ('show', 'anime') and i.ids -> k.key = k.value
+     order by i.deleted, (i.season is null) desc, i.updated_at desc limit 1;
+    if found then return it; end if;
+  end if;
+  -- (an older season-of-its-own item counts too: it becomes the show)
+  select i.* into it from tracker_items i
+   where i.user_id = me and i.type in ('show', 'anime') and lower(i.title) = lower(item ->> 'title')
+   order by i.deleted, (i.season is null) desc, (i.meta ? 'seasons') desc, i.updated_at desc limit 1;
+  return it;
+end $$;
+
+-- Watched up to episode `upto` of season `s` (forward only; null = the next one, -1 = the whole season). Returns the item id. Internal.
+create or replace function public.tracker_show_watch(me uuid, item jsonb, s int, upto numeric, total numeric, extra jsonb default '{}')
+returns text language plpgsql security definer set search_path = public as $$
+declare it tracker_items; ss jsonb; x jsonb; was text;
+begin
+  if coalesce(item ->> 'title', '') = '' then return null; end if;
+  s := greatest(coalesce(s, 1), 1);
+  it := tracker_find_show(me, item);
+  if it.id is null then
+    it.user_id := me; it.id := 'i-' || replace(gen_random_uuid()::text, '-', '');
+    it.type := case when item ->> 'type' = 'anime' then 'anime' else 'show' end;
+    it.title := left(item ->> 'title', 200); it.year := (item ->> 'year')::int; it.cover_url := left(item ->> 'poster', 1000);
+    it.status := 'planned'; it.progress := 0; it.ids := '{}'; it.meta := '{}'; it.deleted := false;
+    insert into tracker_items (user_id, id, type, title, year, cover_url, status, progress, ids, meta)
+    values (it.user_id, it.id, it.type, it.title, it.year, it.cover_url, it.status, 0, '{}', '{}');
+  end if;
+  was := it.status;
+  if it.deleted then it.deleted := false; it.status := 'planned'; end if;
+  it := tracker_show_settle(it); -- folds an older single-season item in
+  ss := it.meta -> 'seasons';
+  x := coalesce(ss -> s::text, '{"p": 0}');
+  if total is not null and total > 0 and x -> 'n' is null then x := jsonb_set(x, '{n}', to_jsonb(total)); end if;
+  if upto < 0 then
+    -- the whole season (finished, length maybe unknown: then what you watched was all of it)
+    x := jsonb_set(x, '{n}', coalesce(x -> 'n', to_jsonb(greatest(coalesce(tracker_num(x -> 'p'), 0), 1))));
+    x := jsonb_set(x, '{p}', x -> 'n');
+  else
+    x := jsonb_set(x, '{p}', to_jsonb(greatest(coalesce(tracker_num(x -> 'p'), 0), coalesce(upto, coalesce(tracker_num(x -> 'p'), 0) + 1))));
+  end if;
+  it.meta := jsonb_set(it.meta, '{seasons}', ss || jsonb_build_object(s::text, x)) || coalesce(extra, '{}');
+  if was in ('on_hold', 'dropped') then it.status := 'active'; end if;
+  it := tracker_show_settle(it);
+  update tracker_items set deleted = false, status = it.status, progress = it.progress, progress_total = it.progress_total,
+      season = null, meta = it.meta, ids = ids || coalesce(item -> 'ids', '{}'), cover_url = coalesce(cover_url, left(item ->> 'poster', 1000)),
+      started_at = it.started_at, finished_at = it.finished_at, updated_at = now(), synced_at = now()
+   where user_id = me and id = it.id;
+  return it.id;
+end $$;
+
 -- Everything another app knows you read, watched or are partway through (128bitPlay sends its
 -- audiobooks, comics, movies and shows). Only ever moves things forward: progress goes up,
 -- planned → in progress → finished; never deletes, never undoes a finish, never touches
--- something you dropped or put on hold yourself. Shows come one item per season.
+-- something you dropped or put on hold yourself. A show is one item: a season sent goes inside it.
 create or replace function public.track_items(items jsonb) returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare
@@ -479,14 +609,15 @@ begin
     st := coalesce(r ->> 'status', case when coalesce((r ->> 'progress')::numeric, 0) > 0 then 'active' else 'planned' end);
     continue when st not in ('planned', 'active', 'done');
     it := null;
-    if r ->> 'season' is not null then
-      select * into it from tracker_items t
-       where t.user_id = me and not t.deleted and t.season = (r ->> 'season')::int and (t.type = coalesce(r ->> 'type', 'show') or (t.type in ('show', 'anime') and coalesce(r ->> 'type', 'show') in ('show', 'anime')))
-         and ((r -> 'ids' ? 'imdb' and t.ids ->> 'imdb' = r -> 'ids' ->> 'imdb') or lower(t.title) = lower(r ->> 'title'))
-       limit 1;
-    else
-      it := tracker_find(me, r);
+    -- A show's season: into the one show, that season's progress (seasons live inside).
+    if r ->> 'season' is not null and coalesce(r ->> 'type', 'show') in ('show', 'anime') then
+      perform tracker_show_watch(me, r, (r ->> 'season')::int,
+        case when st = 'done' then -1 else coalesce((r ->> 'progress')::numeric, 0) end,
+        (r ->> 'progress_total')::numeric, coalesce(r -> 'meta', '{}'));
+      changed := changed + 1;
+      continue;
     end if;
+    it := tracker_find(me, r);
     if it.id is null then
       insert into tracker_items (user_id, id, type, title, creator, year, cover_url, status, progress, progress_total, season, ids, meta, started_at, finished_at)
       values (me, 'i-' || replace(gen_random_uuid()::text, '-', ''), left(coalesce(r ->> 'type', 'movie'), 24), left(r ->> 'title', 200),
@@ -541,10 +672,6 @@ begin
   return v::timestamptz;
 exception when others then return null;
 end $$;
-create or replace function public.tracker_num(v jsonb) returns numeric
-language sql immutable set search_path = public as $$
-  select case when jsonb_typeof(v) = 'number' then v::text::numeric end
-$$;
 
 -- Everything you're partway through, on any device or app, most recent first:
 -- movies, episodes, books, comics, with meta.now (position, episode, chapter, page).
@@ -693,29 +820,7 @@ begin
       s := coalesce((d ->> 'season')::int, substring(d ->> 'episode' from '[Ss](\d+)')::int, 1);
       num := coalesce((d ->> 'number')::int, substring(d ->> 'episode' from '[Ee](\d+)')::int);
       total := (d ->> 'season_episodes')::int;
-      select * into it from tracker_items t
-       where t.user_id = me and not t.deleted and t.type in ('show', 'anime') and t.season = s
-         and ((idz ? 'imdb' and t.ids ->> 'imdb' = idz ->> 'imdb') or lower(t.title) = lower(ttl))
-       order by (t.ids ->> 'imdb' = idz ->> 'imdb') desc nulls last limit 1;
-      if not found then
-        insert into tracker_items (user_id, id, type, title, year, cover_url, status, progress, progress_total, season, ids, started_at, updated_at)
-        values (me, 'p-' || md5(me::text || ':' || typ || ':' || lower(ttl) || ':' || s), typ, left(ttl, 200), (d ->> 'year')::int,
-                left(d ->> 'poster', 1000), case when total is not null and coalesce(num, 1) >= total then 'done' else 'active' end,
-                coalesce(num, 1), total, s, idz, new.at, new.at)
-        on conflict (user_id, id) do nothing;
-      else
-        update tracker_items set
-            progress = greatest(progress, coalesce(num, progress + 1)),
-            progress_total = coalesce(progress_total, total),
-            status = case when coalesce(progress_total, total) is not null and greatest(progress, coalesce(num, progress + 1)) >= coalesce(progress_total, total) then 'done'
-                          when status in ('planned', 'on_hold') then 'active' else status end,
-            finished_at = case when coalesce(progress_total, total) is not null and greatest(progress, coalesce(num, progress + 1)) >= coalesce(progress_total, total)
-                               then coalesce(finished_at, new.at) else finished_at end,
-            started_at = coalesce(started_at, new.at),
-            ids = ids || idz, cover_url = coalesce(cover_url, left(d ->> 'poster', 1000)),
-            updated_at = greatest(updated_at, now()), synced_at = now()
-         where user_id = me and id = it.id;
-      end if;
+      perform tracker_show_watch(me, jsonb_build_object('type', typ, 'title', ttl, 'ids', idz, 'poster', d ->> 'poster', 'year', d ->> 'year'), s, num, total);
     else
       typ := case new.type when 'movie.watched' then 'movie' when 'book.finished' then 'book' else 'comic' end;
       ttl := coalesce(d ->> 'title', d ->> 'comic');
@@ -750,7 +855,8 @@ drop trigger if exists tracker_apply_event on public.family_events;
 create trigger tracker_apply_event after insert on public.family_events
   for each row execute function public.tracker_apply_event();
 
-revoke all on function public.tracker_find(uuid, jsonb), public.tracker_ensure(uuid, jsonb), public.find_item(jsonb), public.track_items(jsonb), public.set_progress(jsonb), public.get_in_progress(int), public.tracker_ts(text), public.tracker_num(jsonb), public.tracker_apply_event(), public.tracker_item_json(public.tracker_items), public.tracker_me(), public.tracker_push(jsonb),
+revoke all on function public.tracker_show_settle(public.tracker_items), public.tracker_find_show(uuid, jsonb), public.tracker_show_watch(uuid, jsonb, int, numeric, numeric, jsonb),
+  public.tracker_find(uuid, jsonb), public.tracker_ensure(uuid, jsonb), public.find_item(jsonb), public.track_items(jsonb), public.set_progress(jsonb), public.get_in_progress(int), public.tracker_ts(text), public.tracker_num(jsonb), public.tracker_apply_event(), public.tracker_item_json(public.tracker_items), public.tracker_me(), public.tracker_push(jsonb),
   public.tracker_pull(timestamptz), public.get_lists(text, boolean), public.get_list_items(text, int, int),
   public.get_watchlist(text, int), public.get_up_next(int), public.get_calendar(int), public.get_calendar_local(int, text), public.starter_lists(), public.get_history(bigint, int),
   public.get_item_progress(jsonb), public.create_list(text, text, boolean), public.add_to_list(text, jsonb),
@@ -768,3 +874,56 @@ grant execute on function public.get_public_list(text), public.get_public_profil
 revoke all on function public.tracker_bump_usage(uuid, text) from public, anon, authenticated;
 grant execute on function public.tracker_bump_usage(uuid, text) to service_role;
 -- End of the tracker block.
+
+-- ---------- Once: a season that was its own item goes inside its show ----------
+-- (Before, each season of a show was a separate item.) Its progress becomes that season's
+-- in the show, its lists and golden trophy move to the show, and the season item is
+-- removed (synced as a delete). Every show then gets its seasons worked out. Safe to run again.
+do $$
+declare r record; par tracker_items; ss jsonb; x jsonb; pp numeric; nn numeric;
+begin
+  for r in select * from tracker_items where season is not null and not deleted and type in ('show', 'anime') order by user_id, season loop
+    par := null;
+    select * into par from tracker_items p
+     where p.user_id = r.user_id and not p.deleted and p.season is null and p.type in ('show', 'anime')
+       and ((r.ids ? 'imdb' and p.ids ->> 'imdb' = r.ids ->> 'imdb') or lower(p.title) = lower(r.title))
+     order by (r.ids ? 'imdb' and p.ids ->> 'imdb' = r.ids ->> 'imdb') desc nulls last, (p.meta ? 'seasons') desc, p.updated_at desc limit 1;
+    nn := coalesce(r.progress_total, case when r.status = 'done' then greatest(floor(r.progress), 1) end);
+    pp := case when r.status = 'done' then nn else floor(r.progress) end;
+    x := jsonb_strip_nulls(jsonb_build_object('p', pp, 'n', nn, 'done', case when r.status = 'done' then coalesce(r.finished_at, r.updated_at) end));
+    if par.id is null then
+      -- No show to go into: this season's item becomes the show.
+      select * into par from tracker_items where user_id = r.user_id and id = r.id;
+      par.meta := par.meta || jsonb_build_object('seasons', jsonb_build_object(r.season::text, x));
+      par.season := null;
+      par := tracker_show_settle(par);
+      update tracker_items set season = null, meta = par.meta, status = par.status, progress = par.progress, progress_total = par.progress_total,
+          started_at = par.started_at, finished_at = par.finished_at, updated_at = now(), synced_at = now()
+       where user_id = r.user_id and id = r.id;
+    else
+      if not par.meta ? 'seasons' then par := tracker_show_settle(par); end if;
+      ss := coalesce(par.meta -> 'seasons', '{}');
+      x := x || jsonb_build_object('p', greatest(pp, coalesce(tracker_num(ss -> r.season::text -> 'p'), 0)));
+      par.meta := jsonb_set(par.meta, '{seasons}', ss || jsonb_build_object(r.season::text, x));
+      par := tracker_show_settle(par);
+      update tracker_items set meta = par.meta, status = par.status, progress = par.progress, progress_total = par.progress_total,
+          ids = ids || r.ids, cover_url = coalesce(cover_url, r.cover_url), rating = coalesce(rating, r.rating),
+          started_at = least(par.started_at, r.started_at), finished_at = par.finished_at, updated_at = now(), synced_at = now()
+       where user_id = r.user_id and id = par.id;
+      insert into tracker_list_items as t (user_id, list_id, item_id, position)
+      select user_id, list_id, par.id, position from tracker_list_items where user_id = r.user_id and item_id = r.id and not deleted
+      on conflict (user_id, list_id, item_id) do update set deleted = false, updated_at = now(), synced_at = now();
+      update tracker_list_items set deleted = true, updated_at = now(), synced_at = now() where user_id = r.user_id and item_id = r.id and not deleted;
+      update tracker_items set deleted = true, updated_at = now(), synced_at = now() where user_id = r.user_id and id = r.id;
+    end if;
+    update tracker_trophies set item_id = par.id, season = r.season, updated_at = now(), synced_at = now()
+     where user_id = r.user_id and item_id = r.id;
+  end loop;
+  -- Every other show: its seasons, from what it already says.
+  for par in select * from tracker_items where type in ('show', 'anime') and season is null and not deleted and not meta ? 'seasons' loop
+    par := tracker_show_settle(par);
+    update tracker_items set meta = par.meta, status = par.status, progress = par.progress, progress_total = par.progress_total,
+        started_at = par.started_at, finished_at = par.finished_at, updated_at = now(), synced_at = now()
+     where user_id = par.user_id and id = par.id;
+  end loop;
+end $$;

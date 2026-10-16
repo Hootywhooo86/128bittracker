@@ -16,6 +16,8 @@ import { upcoming } from '../integrations/calendar.js';
 import * as hub from '../integrations/hub.js';
 import * as health from '../integrations/health.js';
 import { localStarterLists } from '../integrations/starter-lists.js';
+import { episodeTracker, episodesFor, trackerView } from '../integrations/episodes.js';
+import { isShow, setSeasonProgress } from '../domain/seasons.js';
 
 export const API_VERSION = '1';
 
@@ -61,6 +63,17 @@ export function addCoreRoutes(r, ctx) {
   r.patch('/api/v1/items/:id', 'write', ({ params, body }) => library.updateItem(ctx, id(params), body ?? {}));
   r.delete('/api/v1/items/:id', 'write', ({ params }) => (library.deleteItem(ctx, id(params)), [204]));
   r.post('/api/v1/items/:id/sessions', 'write', ({ params, body }) => [201, library.addSession(ctx, id(params), body ?? {})]);
+  // A show's seasons and episodes (TVmaze / TMDB / AniList) with what you've watched;
+  // POST { season, upto } ticks that season up to that episode (0 = none).
+  r.get('/api/v1/items/:id/episodes', 'read', ({ params, query }) => episodeTracker(ctx, id(params), { refresh: query.refresh === '1' }));
+  r.post('/api/v1/items/:id/episodes', 'write', async ({ params, body }) => {
+    const item = library.getItem(ctx, id(params));
+    if (!isShow(item)) throw new HttpError(400, 'episodes are for shows and anime');
+    const season = Number(body?.season), upto = Number(body?.upto);
+    if (!Number.isInteger(season) || season < 1 || !Number.isInteger(upto) || upto < 0 || upto > 5000) throw new HttpError(400, 'send { season, upto }');
+    const updated = library.updateItem(ctx, item.id, setSeasonProgress(item, season, upto));
+    return { ...trackerView(updated, await episodesFor(ctx, updated).catch(() => null)), new_trophy: updated.new_trophy ?? null };
+  });
   r.get('/api/v1/lookup/:source/:externalId', 'read', ({ params }) => {
     const item = library.findByExternal(ctx, params.source, params.externalId);
     if (!item) throw new HttpError(404, 'item not found');

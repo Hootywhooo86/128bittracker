@@ -19,13 +19,23 @@
 //   book.finished   { title, author? }          → book (done); from 128bitPlay an
 //                   audiobook (meta.format) → golden CD
 //   movie.watched   { title }                   → movie (done → golden VHS)
-//   episode.watched { show, episode: "S2 E3 · Name" } → that season's item; the
-//                   last episode of the season finishes it (→ golden TV). With
-//                   data.anime (set by enrich.js) the season is an anime item
-//                   instead (→ golden idol).
+//   episode.watched { show, episode: "S2 E3 · Name" } → the show (one item, its
+//                   seasons inside); the last episode of a season finishes that
+//                   season (→ a golden TV for it). With data.anime (set by
+//                   enrich.js) it's an anime (→ golden idol per season).
 //   chapter.read    { comic }                   → comic (+1 issue)
 import { HttpError } from '../api/errors.js';
-import { createItem, findByExternal, updateItem, addSession, getItem } from '../domain/library.js';
+import { createItem, findByExternal, updateItem, addSession, getItem, hydrate } from '../domain/library.js';
+import { watchEpisode } from '../domain/seasons.js';
+
+/** The library's show (or anime) by IMDb id or name: the one holding its seasons, else the newest. */
+function findShow(ctx, title, imdb) {
+  const rows = ctx.db
+    .prepare(`SELECT * FROM items WHERE type IN ('show','anime') AND ((? IS NOT NULL AND json_extract(meta, '$.imdb_id') = ?) OR lower(title) = lower(?))
+               ORDER BY (json_extract(meta, '$.seasons') IS NOT NULL) DESC, (json_extract(meta, '$.season') IS NULL) DESC, updated_at DESC`)
+    .all(imdb ?? null, imdb ?? null, title);
+  return rows.length ? hydrate(rows[0]) : null;
+}
 
 const key = (s) => String(s ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 
@@ -108,15 +118,12 @@ export function applyPlayEvent(ctx, ev) {
       const season = Number(d.season ?? String(d.episode ?? '').match(/S(\d+)/i)?.[1]) || null;
       const number = Number(d.number ?? String(d.episode ?? '').match(/E(\d+)/i)?.[1]) || null;
       const type = d.anime ? 'anime' : 'show';
-      const item = upsertMedia(ctx, `${type}:${key(d.show)}${season ? `:s${season}` : ''}`, {
-        type, title: d.show, status: 'active', meta: season ? { season } : {},
+      // The show is one item with its seasons inside (src/domain/seasons.js).
+      const item = findShow(ctx, d.show, d.imdb) ?? upsertMedia(ctx, `${type}:${key(d.show)}`, {
+        type, title: d.show, status: 'active', meta: d.imdb ? { imdb_id: d.imdb } : {},
       });
-      const total = Number(d.season_episodes) || item.progress_total || null;
-      const progress = Math.max(item.progress ?? 0, number ?? (item.progress ?? 0) + 1);
-      const patch = { progress };
-      if (total && !item.progress_total) patch.progress_total = total;
-      if (total && progress >= total) patch.status = 'done';
-      else if (item.status === 'planned' || item.status === 'on_hold') patch.status = 'active';
+      const patch = watchEpisode(item, season ?? 1, number, Number(d.season_episodes) || null);
+      if (d.imdb && !item.meta?.imdb_id) patch.meta.imdb_id = d.imdb;
       return [{ item_id: updateItem(ctx, item.id, patch).id }];
     }
     case 'chapter.read': {

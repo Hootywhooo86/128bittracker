@@ -66,7 +66,7 @@ select pg_temp.expect(public.track_items('[
   {"type": "comic", "title": "Saga", "status": "active", "progress": 12},
   {"type": "movie", "title": "Arrival", "ids": {"imdb": "tt2543164"}, "status": "done"},
   {"type": "show", "title": "Severance", "season": 2, "ids": {"imdb": "tt11280740"}, "status": "active", "progress": 4, "progress_total": 10}
-]') ->> 'added' = '3', 'three new, Arrival already there');
+]') ->> 'added' = '2', 'two new; Arrival already there, Severance season 2 goes inside Severance');
 select pg_temp.expect(public.find_item('{"ids": {"imdb": "tt2543164"}}') ->> 'status' = 'done', 'watched movie finished');
 select public.track_items('[{"type": "book", "title": "dune", "status": "active", "progress": 20}, {"type": "comic", "title": "Saga", "status": "planned"}]');
 select pg_temp.expect((public.find_item('{"type": "book", "title": "Dune"}') ->> 'progress')::numeric = 40, 'progress never goes back');
@@ -82,16 +82,26 @@ select pg_temp.expect(public.find_item('{"ids": {"imdb": "tt2543164"}}') ->> 'st
 -- Live from a player, and "continue anywhere".
 select public.set_progress('{"type": "movie", "title": "Dune: Part Two", "ids": {"imdb": "tt15239678"}, "status": "active", "meta": {"pct": 30, "now": {"pct": 30, "position_s": 3000, "duration_s": 9960, "at": "2026-10-13T10:00:00Z"}}}');
 select public.set_progress('{"type": "anime", "title": "Severance", "season": 2, "ids": {"imdb": "tt11280740"}, "status": "active", "progress": 4, "meta": {"now": {"episode": 5, "pct": 37, "at": "2026-10-13T11:00:00Z"}}}');
-select pg_temp.expect(jsonb_array_length(public.get_item_progress('{"imdb": "tt11280740"}')) = 2, 'show/anime mix-up finds the same season');
+select pg_temp.expect(jsonb_array_length(public.get_item_progress('{"imdb": "tt11280740"}')) = 1, 'show/anime mix-up finds the same show');
 select pg_temp.expect(public.get_in_progress(10) -> 0 ->> 'title' = 'Severance', 'most recent first');
 select pg_temp.expect((public.get_in_progress(10) -> 0 -> 'now' ->> 'episode')::int = 5, 'with the episode');
 select pg_temp.expect(public.get_in_progress(10) -> 1 ->> 'title' = 'Dune: Part Two', 'and the movie');
 select pg_temp.expect(not exists (select 1 from jsonb_array_elements(public.get_in_progress(10)) e where e ->> 'title' = 'Arrival'), 'watched movies stay out');
 select public.set_progress('{"type": "show", "title": "Severance", "season": 2, "ids": {"imdb": "tt11280740"}, "status": "active", "progress": 5}');
 select pg_temp.expect(not exists (select 1 from jsonb_array_elements(public.get_in_progress(10)) e where e ->> 'title' = 'Severance'), 'a finished episode leaves it');
-select pg_temp.expect(jsonb_array_length(public.get_item_progress('{"imdb": "tt11280740"}')) = 2, 'season 2 is its own item');
+select pg_temp.expect((public.get_item_progress('{"imdb": "tt11280740"}') -> 0 -> 'seasons' -> '2' ->> 'p')::int = 5, 'season 2 lives inside the show');
+select pg_temp.expect((public.get_item_progress('{"imdb": "tt11280740"}') -> 0 ->> 'season')::int = 2, 'on season 2');
+-- Seasons inside: finishing one keeps the show going; caught up is done; a new season announced brings it back.
+select public.track_items('[{"type": "show", "title": "Severance", "season": 2, "ids": {"imdb": "tt11280740"}, "status": "done"}]');
+select pg_temp.expect(public.find_item('{"ids": {"imdb": "tt11280740"}}') ->> 'season' = '1', 'season 1 is still part-way: that''s next');
+select public.track_items('[{"type": "show", "title": "Severance", "season": 1, "ids": {"imdb": "tt11280740"}, "status": "done"}]');
+select pg_temp.expect(public.find_item('{"ids": {"imdb": "tt11280740"}}') ->> 'status' = 'done', 'caught up: done');
+select pg_temp.expect(public.find_item('{"ids": {"imdb": "tt11280740"}}') -> 'seasons' -> '2' ? 'done', 'season 2 finished');
+select public.track_items('[{"type": "show", "title": "Severance", "season": 3, "ids": {"imdb": "tt11280740"}, "status": "active", "progress": 0, "progress_total": 8}]');
+select pg_temp.expect(public.find_item('{"ids": {"imdb": "tt11280740"}}') ->> 'status' = 'active', 'season 3 coming: back in progress');
+select pg_temp.expect(public.get_up_next() @> '[{"title": "Severance", "next": {"season": 3, "number": 1}}]', 'Up Next: S3 E1');
 select pg_temp.expect(public.find_item('{"ids": {"imdb": "tt2543164"}}') ->> 'title' = 'Arrival', 'a removed watchlist title comes back via a list');
-select pg_temp.expect(jsonb_array_length(public.get_item_progress('{"imdb": "tt11280740"}')) = 2, 'a show in progress isn''t removed');
+select pg_temp.expect(jsonb_array_length(public.get_item_progress('{"imdb": "tt11280740"}')) = 1, 'a show in progress isn''t removed');
 
 -- Starter lists: reuse what's there (fixing a mis-kinded "Amine"), make the rest, never twice.
 select public.create_list('Amine', 'show', true);
@@ -111,11 +121,13 @@ exception when insufficient_privilege then null; end $$;
 
 -- Watching in 128bitPlay (family feed) moves the season on; the last episode finishes it.
 select public.log_events('[{"id": "p1", "app": "play", "type": "episode.watched", "at": 1790000000000,
-  "data": {"show": "Severance", "episode": "S1 E3 · Who Is Alive?", "imdb": "tt11280740", "season_episodes": 9}}]');
-select pg_temp.expect((public.get_item_progress('{"imdb": "tt11280740"}') -> 0 ->> 'progress')::numeric = 3, 'episode applied');
+  "data": {"show": "Andor", "episode": "S1 E3 · Reckoning", "imdb": "tt9253284", "season_episodes": 12}}]');
+select pg_temp.expect((public.get_item_progress('{"imdb": "tt9253284"}') -> 0 -> 'seasons' -> '1' ->> 'p')::numeric = 3, 'episode applied');
+select pg_temp.expect(public.get_up_next() @> '[{"title": "Andor", "next": {"season": 1, "number": 4}}]', 'Up Next: S1 E4');
 select public.log_events('[{"id": "p2", "app": "play", "type": "episode.watched", "at": 1790000001000,
-  "data": {"show": "Severance", "season": 1, "number": 9, "imdb": "tt11280740"}}]');
-select pg_temp.expect(public.get_item_progress('{"imdb": "tt11280740"}') -> 0 ->> 'status' = 'done', 'finale finishes the season');
+  "data": {"show": "Andor", "season": 1, "number": 12, "imdb": "tt9253284"}}]');
+select pg_temp.expect(public.get_item_progress('{"imdb": "tt9253284"}') -> 0 ->> 'status' = 'done', 'finale finishes the season (caught up)');
+select pg_temp.expect(jsonb_array_length(public.get_item_progress('{"imdb": "tt9253284"}')) = 1, 'one show');
 select public.log_events('[{"id": "p3", "app": "play", "type": "episode.watched", "at": 1790000002000,
   "data": {"show": "Frieren", "episode": "S1 E1", "anime": true, "season_episodes": 28}}]');
 select pg_temp.expect((select count(*) from jsonb_array_elements(public.get_up_next()) u where u ->> 'title' = 'Frieren' and u ->> 'type' = 'anime') = 1, 'anime from Play is anime');

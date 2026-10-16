@@ -232,6 +232,22 @@ Requests saved for Sunday's session. Items marked ✅ were built early (Tracker 
       then the rest; "New list" stays at the bottom.
     - Small, one-file fix; can be done before Sunday if wanted.
 
+## After Sunday
+
+1. **Anime watched in Play shows as TV (yellow) on the timeline.**
+   (Screenshot Oct 16: *The Laid-Off Cheat-Granting Mage Enjoys a Second Lease on Life*
+   S1 E2, 23 min, finished, shown yellow / ▶ like a TV show.) It's on your Anime list and
+   in the library as anime (imdb tt43691412). Cause: Play played it from the TV (IMDb)
+   catalog, so its `watch.session` has no `anime` / `kitsu` flag, and the timeline,
+   stats and pixels decide anime only from those flags (`mediaKind` in `public/app.js`,
+   `mediaOf` in `src/domain/stats.js`).
+   - Tracker: decide the kind from the library first: match the session's imdb / kitsu
+     id (or show title) to the item, and use its type (anime) before falling back to the flags.
+   - Play: when the show is on your Tracker Anime list or is anime in Tracker, send
+     `anime: true` with its sessions (`lib/sessions.ts`).
+   - Also seen: that show is in the library **twice** (two anime items, same imdb):
+     merge duplicates with the same ids.
+
 ## Later (not Sunday)
 
 - **Music** in the 128bit family: November.

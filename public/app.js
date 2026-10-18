@@ -98,6 +98,46 @@ const current = () => location.pathname.slice(1) || 'today';
 const refresh = () => go(current(), false);
 // The Android app pulls in other apps' events in the background.
 window.addEventListener('tracker:synced', refresh);
+
+// Pull down at the top of any screen (the timeline above all): sync with every 128bit app now.
+// The Android app swaps in its own (family feed, cloud library, game platforms, Health Connect).
+window.trackerSyncAll ??= () => api('POST', '/family/sync', {});
+(function pullToSync() {
+  const bar = document.createElement('div');
+  bar.id = 'pull-sync';
+  bar.className = 'px';
+  document.body.prepend(bar);
+  const ARM = 70;
+  let y0 = null, dy = 0, busy = false;
+  const show = (h, text) => { bar.style.height = `${h}px`; bar.textContent = text; bar.classList.toggle('on', h > 0); };
+  document.addEventListener('touchstart', (e) => {
+    if (busy || window.scrollY > 0 || $('#modal-root')?.firstChild) return;
+    y0 = e.touches[0].clientY; dy = 0;
+  }, { passive: true });
+  document.addEventListener('touchmove', (e) => {
+    if (y0 == null) return;
+    dy = e.touches[0].clientY - y0;
+    if (dy <= 0 || window.scrollY > 0) { show(0, ''); return; }
+    show(Math.min(dy / 2, 60), dy > ARM ? '↑ LET GO TO SYNC' : '↓ PULL TO SYNC');
+  }, { passive: true });
+  document.addEventListener('touchend', async () => {
+    if (y0 == null) return;
+    y0 = null;
+    if (dy <= ARM) { show(0, ''); return; }
+    busy = true;
+    show(40, 'SYNCING…');
+    try {
+      await window.trackerSyncAll();
+      await refresh();
+      toast('✓ SYNCED');
+    } catch (err) {
+      toast(`SYNC FAILED: ${err.message}`);
+    } finally {
+      busy = false;
+      show(0, '');
+    }
+  });
+})();
 window.addEventListener('tracker:update', (e) => showUpdate(e.detail));
 
 // ---------- update notice (Android) ----------

@@ -323,3 +323,7 @@ h3.sub.kind{color:var(--c)}
 .ep-row .ep-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ep-row .ep-day{font-size:12px;white-space:nowrap}
 .px-check{flex:none}
+/* Pull down to sync: a strip that grows from the top while you pull. */
+#pull-sync{position:fixed;top:0;left:0;right:0;z-index:50;height:0;overflow:hidden;display:flex;align-items:center;justify-content:center;
+  background:var(--panel);color:var(--teal);font-size:10px;border-bottom:0 solid var(--teal);transition:height .15s}
+#pull-sync.on{border-bottom-width:3px}

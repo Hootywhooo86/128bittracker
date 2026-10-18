@@ -65,6 +65,10 @@ device().then(({ store, sync, reminders, updates }) => {
   healthTick();
   setInterval(healthCheck, 15 * 60_000);
   App.addListener('resume', healthTick);
+  // Pulled down in the app: everything at once, now.
+  window.trackerSyncAll = async () => {
+    await Promise.allSettled([familyTick(), sync.run(), autoSyncPlatforms({ force: true }), healthTick()]);
+  };
   sync.startAuto({
     onSynced: () => {
       reminders.refresh();
@@ -74,12 +78,12 @@ device().then(({ store, sync, reminders, updates }) => {
 });
 
 // Game platforms: refresh play time + achievements at most twice a day.
-async function autoSyncPlatforms() {
+async function autoSyncPlatforms({ force = false } = {}) {
   const { request } = await import('./transport.js');
   const { data: list } = await request('GET', '/connectors');
   for (const c of list ?? []) {
     if (!c.configured || c.last_error) continue;
-    if (c.last_sync_at && Date.now() - Date.parse(c.last_sync_at) < 12 * 3600_000) continue;
+    if (!force && c.last_sync_at && Date.now() - Date.parse(c.last_sync_at) < 12 * 3600_000) continue;
     const { status, data } = await request('POST', `/connectors/${c.name}/sync`, {});
     if (status === 200 && (data.added || data.minutes || data.new_trophies?.length)) {
       window.dispatchEvent(new CustomEvent('tracker:synced'));

@@ -358,7 +358,7 @@ create or replace function public.get_item_progress(ids jsonb) returns jsonb
 language sql stable security definer set search_path = public as $$
   select coalesce(jsonb_agg(tracker_item_json(i) order by i.season nulls first), '[]')
     from tracker_items i, jsonb_each(get_item_progress.ids) k
-   where i.user_id = tracker_me() and not i.deleted and i.ids -> k.key = k.value
+   where i.user_id = tracker_me() and not i.deleted and i.ids ->> k.key = k.value #>> '{}'
 $$;
 
 create or replace function public.create_list(name text, kind text default 'mixed', show_in_play boolean default true) returns jsonb
@@ -423,14 +423,15 @@ declare it tracker_items;
 begin
   if jsonb_typeof(item -> 'ids') = 'object' and item -> 'ids' <> '{}' then
     select i.* into it from tracker_items i, jsonb_each(item -> 'ids') k
-     where i.user_id = me and i.ids -> k.key = k.value and i.season is null
+     where i.user_id = me and i.ids ->> k.key = k.value #>> '{}' and i.season is null
      order by i.deleted, i.updated_at desc limit 1;
     if found then return it; end if;
   end if;
   if coalesce(item ->> 'title', '') <> '' then
     select i.* into it from tracker_items i
      where i.user_id = me and i.season is null and lower(i.title) = lower(item ->> 'title')
-       and (item ->> 'type' is null or i.type = item ->> 'type')
+       and (item ->> 'type' is null or i.type = item ->> 'type'
+            or (i.type in ('show', 'anime') and item ->> 'type' in ('show', 'anime')))
      order by i.deleted, i.updated_at desc limit 1;
     if found then return it; end if;
   end if;
@@ -458,6 +459,16 @@ begin
           (item ->> 'year')::int, left(item ->> 'poster', 1000), left(item ->> 'backdrop', 1000), coalesce(item -> 'ids', '{}'));
   return iid;
 end $$;
+
+-- Every list an item is on (the "+" sheet's ticks in 128bitPlay).
+create or replace function public.get_item_lists(item_id text) returns jsonb
+language sql stable security definer set search_path = public as $$
+  select coalesce(jsonb_agg(li.list_id order by li.list_id), '[]')
+    from tracker_list_items li join tracker_lists l on l.user_id = li.user_id and l.id = li.list_id
+   where li.user_id = tracker_me() and li.item_id = get_item_lists.item_id and not li.deleted and not l.deleted
+$$;
+revoke all on function public.get_item_lists(text) from public, anon;
+grant execute on function public.get_item_lists(text) to authenticated;
 
 create or replace function public.add_to_list(list_id text, item jsonb) returns jsonb
 language plpgsql security definer set search_path = public as $$
@@ -537,7 +548,7 @@ declare it tracker_items;
 begin
   if jsonb_typeof(item -> 'ids') = 'object' and item -> 'ids' <> '{}' then
     select i.* into it from tracker_items i, jsonb_each(item -> 'ids') k
-     where i.user_id = me and i.type in ('show', 'anime') and i.ids -> k.key = k.value
+     where i.user_id = me and i.type in ('show', 'anime') and i.ids ->> k.key = k.value #>> '{}'
      order by i.deleted, (i.season is null) desc, i.updated_at desc limit 1;
     if found then return it; end if;
   end if;
@@ -927,3 +938,9 @@ begin
      where user_id = par.user_id and id = par.id;
   end loop;
 end $$;
+
+-- Once: anime saved as 'show' that sit on an anime list are anime. Safe to run again.
+update tracker_items t set type = 'anime', updated_at = now(), synced_at = now()
+ where t.type = 'show' and not t.deleted and exists (
+   select 1 from tracker_list_items li join tracker_lists l on l.user_id = li.user_id and l.id = li.list_id
+    where li.user_id = t.user_id and li.item_id = t.id and not li.deleted and not l.deleted and l.kind = 'anime');

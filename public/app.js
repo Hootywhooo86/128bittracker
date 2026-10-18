@@ -98,6 +98,46 @@ const current = () => location.pathname.slice(1) || 'today';
 const refresh = () => go(current(), false);
 // The Android app pulls in other apps' events in the background.
 window.addEventListener('tracker:synced', refresh);
+
+// Pull down at the top of any screen (the timeline above all): sync with every 128bit app now.
+// The Android app swaps in its own (family feed, cloud library, game platforms, Health Connect).
+window.trackerSyncAll ??= () => api('POST', '/family/sync', {});
+(function pullToSync() {
+  const bar = document.createElement('div');
+  bar.id = 'pull-sync';
+  bar.className = 'px';
+  document.body.prepend(bar);
+  const ARM = 70;
+  let y0 = null, dy = 0, busy = false;
+  const show = (h, text) => { bar.style.height = `${h}px`; bar.textContent = text; bar.classList.toggle('on', h > 0); };
+  document.addEventListener('touchstart', (e) => {
+    if (busy || window.scrollY > 0 || $('#modal-root')?.firstChild) return;
+    y0 = e.touches[0].clientY; dy = 0;
+  }, { passive: true });
+  document.addEventListener('touchmove', (e) => {
+    if (y0 == null) return;
+    dy = e.touches[0].clientY - y0;
+    if (dy <= 0 || window.scrollY > 0) { show(0, ''); return; }
+    show(Math.min(dy / 2, 60), dy > ARM ? '↑ LET GO TO SYNC' : '↓ PULL TO SYNC');
+  }, { passive: true });
+  document.addEventListener('touchend', async () => {
+    if (y0 == null) return;
+    y0 = null;
+    if (dy <= ARM) { show(0, ''); return; }
+    busy = true;
+    show(40, 'SYNCING…');
+    try {
+      await window.trackerSyncAll();
+      await refresh();
+      toast('✓ SYNCED');
+    } catch (err) {
+      toast(`SYNC FAILED: ${err.message}`);
+    } finally {
+      busy = false;
+      show(0, '');
+    }
+  });
+})();
 window.addEventListener('tracker:update', (e) => showUpdate(e.detail));
 
 // ---------- update notice (Android) ----------
@@ -961,6 +1001,8 @@ async function renderStats() {
   const year = new Date().getFullYear();
   const [s, pixels, tro] = await Promise.all([api('GET', '/stats'), api('GET', `/stats/year/${year}`), api('GET', '/trophies')]);
   const lib = Object.entries(s.library).sort((a, b) => b[1].total - a[1].total);
+  // Only the last week's trophies get their own line, so the shelf doesn't fill up; the counts keep them all.
+  const recentTrophies = tro.trophies.filter((t) => Date.now() - Date.parse(t.earned_at) < 7 * 86400_000).slice(0, 24);
   // A day's cell: the colour of what you mostly watched / listened to / read that day
   // (TV yellow, anime pink…), brighter the more you did; habits and other apps in teal.
   const score = (d) => d.logs + d.events + d.minutes / 15;
@@ -990,7 +1032,7 @@ async function renderStats() {
     <h2 class="sec" style="margin-top:6px">TROPHY SHELF</h2>
     <div class="shelf">${TROPHY_KINDS.map((k) => `<div class="shelf-slot ${tro.counts[k] ? 'won' : ''}">${trophySvg(k, 64, { locked: !tro.counts[k] })}
       <div class="px shelf-n">×${tro.counts[k]}</div><div class="shelf-for">${TROPHY_FOR[k]}</div></div>`).join('')}</div>
-    ${tro.trophies.length ? `<div class="shelf-list">${tro.trophies.slice(0, 24).map((t) => `<div class="shelf-item" title="${esc(TROPHY_NAMES[t.kind])} · ${new Date(t.earned_at).toLocaleDateString()}">${trophySvg(t.kind, 36)}<span>${esc(t.title)}</span></div>`).join('')}</div>` : '<p class="muted" style="font-size:13px;margin:10px 0 0">Finish a movie, a show season, an anime or an audiobook, or 100% a game, to earn your first golden trophy.</p>'}
+    ${recentTrophies.length ? `<div class="shelf-list">${recentTrophies.map((t) => `<div class="shelf-item" title="${esc(TROPHY_NAMES[t.kind])} · ${new Date(t.earned_at).toLocaleDateString()}">${trophySvg(t.kind, 36)}<span>${esc(t.title)}</span></div>`).join('')}</div>` : `<p class="muted" style="font-size:13px;margin:10px 0 0">${tro.trophies.length ? 'Trophies you win show here for a week; the shelf above keeps count of them all.' : 'Finish a movie, a show season, an anime or an audiobook, or 100% a game, to earn your first golden trophy.'}</p>`}
     <h2 class="sec">THE NUMBERS</h2>
     <div class="kpis">
       ${kpi('DONE TODAY', `${s.habits.done_today}/${s.habits.count}`, 'habits')}

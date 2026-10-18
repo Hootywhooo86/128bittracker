@@ -459,6 +459,16 @@ begin
   return iid;
 end $$;
 
+-- Every list an item is on (the "+" sheet's ticks in 128bitPlay).
+create or replace function public.get_item_lists(item_id text) returns jsonb
+language sql stable security definer set search_path = public as $$
+  select coalesce(jsonb_agg(li.list_id order by li.list_id), '[]')
+    from tracker_list_items li join tracker_lists l on l.user_id = li.user_id and l.id = li.list_id
+   where li.user_id = tracker_me() and li.item_id = get_item_lists.item_id and not li.deleted and not l.deleted
+$$;
+revoke all on function public.get_item_lists(text) from public, anon;
+grant execute on function public.get_item_lists(text) to authenticated;
+
 create or replace function public.add_to_list(list_id text, item jsonb) returns jsonb
 language plpgsql security definer set search_path = public as $$
 #variable_conflict use_column

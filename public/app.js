@@ -999,6 +999,7 @@ function describe(e) {
     case 'badge.earned': return `🏅 ${d.title ?? 'Badge earned'}`;
     case 'quest.completed': return `⭐ ${d.title ?? 'Quest done'}${d.xp ? ` · +${d.xp} XP` : ''}`;
     case 'booking.made': return `✈️ Booked${d.destination ? ' ' + d.destination : d.place ? ' ' + d.place : ''}${d.via ? ' via ' + d.via : ''}`;
+    case 'route.finished': return `${{ walk: '🚶', bike: '🚲', cycle: '🚲' }[d.mode] ?? '🚗'} ${d.to ? 'To ' + d.to : 'Trip'}${d.km != null ? ` · ${d.km} km` : ''}${d.minutes ? ' · ' + fmtMin(d.minutes) : ''}`;
     case 'trip.created': return `🗺️ New trip${d.destination ? ' · ' + d.destination : ''}`;
     case 'trip.packing.done': return '🧳 Packed';
     case 'trip.checkin': return `📍 Checked in${d.city ? ' · ' + d.city : ''}`;

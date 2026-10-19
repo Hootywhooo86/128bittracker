@@ -61,6 +61,7 @@ Each account only sees its own events. A TV paired to 128bitPlay posts to its ow
 | music, trip | `quest.completed` | `title` or `questId`, `xp` | live, signed in |
 | trip | `booking.made` | `via`, `destination`, `xp` | live, signed in |
 | trip | `trip.created` / `trip.packing.done` / `trip.checkin` / `esim.purchased` | `xp` and details | live, signed in |
+| map | `route.finished` | `mode`, `km`, `minutes`, `to` | live, signed in |
 | gold | `budget.updated` | `name` | planned |
 | music | `track.played` | `title`, `artist` | planned |
 

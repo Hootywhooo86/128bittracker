@@ -260,6 +260,8 @@ function titleFor(type, d, endAt = null) {
     case 'level.up': return `⬆️ Level ${d.level}${d.app ? ` in ${d.app}` : ''}`;
     case 'badge.earned': return `🏅 ${d.title ?? 'Badge'}${d.description ? ` · ${d.description}` : ''}`;
     case 'quest.completed': return `⭐ ${d.title ?? d.questId ?? 'Quest done'}${d.xp ? ` · +${d.xp} XP` : ''}`;
+    // 128bitmap
+    case 'route.finished': return `${{ walk: '🚶', bike: '🚲', cycle: '🚲' }[d.mode] ?? '🚗'} ${d.to ? `To ${d.to}` : 'Trip'}${d.km != null ? ` · ${d.km} km` : ''}${d.minutes ? ` · ${d.minutes} min` : ''}`;
     // 128bittrip
     case 'booking.made': return `✈️ Booked${d.destination ? ` ${d.destination}` : d.place ? ` ${d.place}` : ''}${d.via ? ` via ${d.via}` : ''}`;
     case 'trip.created': return `🗺️ New trip${d.destination ? ` · ${d.destination}` : ''}`;

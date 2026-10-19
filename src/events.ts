@@ -54,6 +54,8 @@ export type FamilyEventData = {
   'trip.packing.done': { xp?: number };
   'trip.checkin': { xp?: number; city?: string };
   'esim.purchased': { xp?: number };
+  // 128bitmap (live, signed in): a trip finished with guidance
+  'route.finished': { mode: string; km: number; minutes: number; to: string | null };
   // Planned
   'budget.updated': { name: string };
   'track.played': { title: string; artist?: string };

@@ -53,10 +53,20 @@ Each account only sees its own events. A TV paired to 128bitPlay posts to its ow
 | fit | `health.day` | `date`, `steps`, `sleepMinutes`, `restingHeartRate`, `activeCalories`, `km` (Health Connect) | live, opt-in |
 | tracker | `habit.completed` | `tracker`, `value`, `unit` | live (Log anything) |
 | tracker | `streak.milestone` / `streak.frozen` | `tracker`, `days` | planned |
+| fantasy | `matchup.won` / `matchup.lost` / `matchup.tied` | `title`, `league`, `sport`, `week`, `detail` | live, signed in |
+| fantasy | `lineup.fixed` | `title`, `league`, `sport`, `week`, `detail` | live, signed in |
+| music | `listening.day` | `date`, `minutes`, `songs`, `topArtist` (one per day, replaced as it grows) | live, signed in |
+| music | `level.up` | `level`, `app` | live, signed in |
+| music | `badge.earned` | `title`, `description` | live, signed in |
+| music, trip | `quest.completed` | `title` or `questId`, `xp` | live, signed in |
+| trip | `booking.made` | `via`, `destination`, `xp` | live, signed in |
+| trip | `trip.created` / `trip.packing.done` / `trip.checkin` / `esim.purchased` | `xp` and details | live, signed in |
 | gold | `budget.updated` | `name` | planned |
 | music | `track.played` | `title`, `artist` | planned |
-| fantasy | `matchup.won` | `league`, `score` | planned |
-| trip | `booking.made` | `place` | planned |
+
+Web pages (landing pages, 128bitmap) connect with the drop-in [`family/family.js`](../family/family.js):
+a "128bit" sign-in chip plus `Bit128Family.logEvent(type, data, { app })`. Every 128bit page on
+`hootywhooo86.github.io` shares one sign-in with it and with `timeline.html`.
 
 The timeline shows unknown types too (using `data.title`, `name`, `tracker` or `text` if there),
 so anything can start posting before Tracker learns its icon.

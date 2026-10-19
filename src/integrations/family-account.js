@@ -252,6 +252,20 @@ function titleFor(type, d, endAt = null) {
     case 'read.session': return `💥 ${d.comic}${d.chapter ? ` · ${d.chapter}` : ''}${d.minutes ? ` · ${mins(d.minutes)}` : ''}${d.chapters ? ` · ${d.chapters} chapter${d.chapters === 1 ? '' : 's'} read` : ''}`;
     case 'workout.logged': return `💪 ${d.name ?? 'Workout'}${d.minutes ? ` · ${d.minutes} min` : ''}`;
     case 'health.day': return `❤️ ${d.steps != null ? `${Number(d.steps).toLocaleString()} steps` : 'Health'}${d.sleepMinutes != null ? ` · ${Math.round(d.sleepMinutes / 6) / 10}h sleep` : ''}`;
+    // 128bitfantasy: results and lineup fixes carry their own one-line title.
+    case 'matchup.won': case 'matchup.lost': case 'matchup.tied': case 'lineup.fixed':
+      return `${{ 'matchup.won': '🏆', 'matchup.lost': '🏈', 'matchup.tied': '🤝', 'lineup.fixed': '✅' }[type]} ${d.title ?? type}${d.league ? ` · ${d.league}` : ''}`;
+    // 128bitmusic
+    case 'listening.day': return `🎵 ${d.minutes != null ? `${d.minutes} min` : 'Listening'}${d.songs ? ` · ${d.songs} song${d.songs === 1 ? '' : 's'}` : ''}${d.topArtist ? ` · mostly ${d.topArtist}` : ''}`;
+    case 'level.up': return `⬆️ Level ${d.level}${d.app ? ` in ${d.app}` : ''}`;
+    case 'badge.earned': return `🏅 ${d.title ?? 'Badge'}${d.description ? ` · ${d.description}` : ''}`;
+    case 'quest.completed': return `⭐ ${d.title ?? d.questId ?? 'Quest done'}${d.xp ? ` · +${d.xp} XP` : ''}`;
+    // 128bittrip
+    case 'booking.made': return `✈️ Booked${d.destination ? ` ${d.destination}` : d.place ? ` ${d.place}` : ''}${d.via ? ` via ${d.via}` : ''}`;
+    case 'trip.created': return `🗺️ New trip${d.destination ? ` · ${d.destination}` : ''}`;
+    case 'trip.packing.done': return '🧳 Packed';
+    case 'trip.checkin': return `📍 Checked in${d.city ? ` · ${d.city}` : ''}`;
+    case 'esim.purchased': return '📶 eSIM ready';
     default: return d.title ?? d.name ?? d.text ?? null;
   }
 }

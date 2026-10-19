@@ -36,12 +36,30 @@ export type FamilyEventData = {
   'habit.completed': { tracker: string; value?: number; unit?: string };
   'streak.milestone': { tracker: string; days: number };
   'streak.frozen': { tracker: string };
-  // Siblings (planned, names from the family brief)
+  // 128bitfantasy (live, signed in): results and lineup fixes, one-line title from the app.
+  'matchup.won': FantasyResult;
+  'matchup.lost': FantasyResult;
+  'matchup.tied': FantasyResult;
+  'lineup.fixed': FantasyResult;
+  // 128bitmusic (live, signed in)
+  /** One per day, id `music-listening-YYYY-MM-DD`, replaced as the day goes on. */
+  'listening.day': { date: string; minutes: number; songs: number; topArtist: string | null };
+  'level.up': { level: number; app?: string };
+  'badge.earned': { title: string; description?: string };
+  // 128bitmusic and 128bittrip
+  'quest.completed': { title?: string; questId?: string; xp?: number };
+  // 128bittrip (live, signed in; XP from its table rides along)
+  'booking.made': { via?: string; destination?: string; xp?: number };
+  'trip.created': { xp?: number; destination?: string };
+  'trip.packing.done': { xp?: number };
+  'trip.checkin': { xp?: number; city?: string };
+  'esim.purchased': { xp?: number };
+  // Planned
   'budget.updated': { name: string };
   'track.played': { title: string; artist?: string };
-  'matchup.won': { league: string; score?: string };
-  'booking.made': { place: string };
 };
+
+type FantasyResult = { title: string; league: string; sport: string; week: number | null; detail: string };
 
 export type FamilyEventType = keyof FamilyEventData;
 

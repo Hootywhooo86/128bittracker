@@ -165,7 +165,13 @@
   // The 128bit family project. Its publishable key is meant to be public; the tables are only
   // reachable through supabase/family.sql's functions.
   const FAMILY = { url: 'https://wvflpwtaszpstmjpkrhu.supabase.co', key: 'sb_publishable_dO8uP74cTV1tbuqESgxysw_323C7lWh' };
-  const STORE = '128bit.tracker.account';
+  // Shared with family/family.js: every 128bit page on this site uses one sign-in.
+  const STORE = '128bit.family.session';
+  try {
+    const old = localStorage.getItem('128bit.tracker.account');
+    if (old && !localStorage.getItem(STORE)) localStorage.setItem(STORE, old);
+    localStorage.removeItem('128bit.tracker.account');
+  } catch (e) { /* private mode */ }
   const PKCE = '128bit.tracker.pkce';
   const PREFS = '128bit.tracker.prefs';
   const PAGE = 200;

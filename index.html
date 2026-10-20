@@ -113,14 +113,20 @@
   @media (max-width:560px){
     form.waitlist button{flex:1 1 100%;margin-top:10px}
   }
+  /* Clerk sign-in (clerk-account.js): shown only when the key below is set. */
+  .clerk-signin{font-family:'Press Start 2P',monospace;font-size:9px;letter-spacing:1px;color:var(--orange);background:none;border:2px solid var(--orange);padding:8px 10px;cursor:pointer}
+  .clerk-signin:hover{color:var(--ink);border-color:var(--ink)}
+  .clerk-msg{font-size:12px;color:var(--muted)}
 </style>
+<!-- Clerk sign-in, next to the 128bit family sign-in. Paste the publishable key (pk_…, public) to turn it on. -->
+<meta name="clerk-publishable-key" content="">
 </head>
 <body>
 <div class="wrap">
 
   <nav>
     <div class="logo"><span class="logo-mark">📊</span>128bit Tracker</div>
-    <div class="nav-right"><a class="nav-link" href="timeline.html">TIMELINE</a><span class="badge">COMING SOON</span></div>
+    <div class="nav-right"><a class="nav-link" href="timeline.html">TIMELINE</a><div data-clerk-account></div><span class="badge">COMING SOON</span></div>
   </nav>
 
   <header>
@@ -204,5 +210,6 @@
     });
   });
 </script>
+<script src="clerk-account.js" defer></script>
 </body>
 </html>

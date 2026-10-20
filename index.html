@@ -114,12 +114,15 @@
     form.waitlist button{flex:1 1 100%;margin-top:10px}
   }
   /* Clerk sign-in (clerk-account.js): shown only when the key below is set. */
+  /* The page's own h1 and button styles leak into Clerk's modal. */
+  .cl-headerTitle { text-shadow:none !important; }
+  .cl-modalCloseButton { box-shadow:none !important; background:none !important; border:0 !important; transform:none !important; }
   .clerk-signin{font-family:'Press Start 2P',monospace;font-size:9px;letter-spacing:1px;color:var(--orange);background:none;border:2px solid var(--orange);padding:8px 10px;cursor:pointer}
   .clerk-signin:hover{color:var(--ink);border-color:var(--ink)}
   .clerk-msg{font-size:12px;color:var(--muted)}
 </style>
 <!-- Clerk sign-in, next to the 128bit family sign-in. Paste the publishable key (pk_…, public) to turn it on. -->
-<meta name="clerk-publishable-key" content="">
+<meta name="clerk-publishable-key" content="pk_test_aHVtYmxlLWRyYWtlLTMyOC5jbGVyay5hY2NvdW50cy5kZXYk">
 </head>
 <body>
 <div class="wrap">

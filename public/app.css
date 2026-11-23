@@ -346,3 +346,12 @@ h3.sub.kind{color:var(--c)}
 .h-done{color:var(--good)} .h-now{color:var(--c)}
 .h-next{font-family:var(--px);font-size:8px;color:var(--muted);margin-top:8px;line-height:1.8}
 .linkish{background:none;border:0;color:var(--c);font:inherit;cursor:pointer;text-decoration:underline;padding:0}
+.h-left{display:flex;gap:12px;align-items:flex-start;background:var(--panel-2);border:3px solid var(--c);padding:10px;margin:4px 0 10px}
+.h-left.caught{display:block;font-family:var(--px);font-size:9px;color:var(--good);border-color:var(--good)}
+.h-left-main{flex:1;min-width:0}
+.h-left-k{font-size:8px;color:var(--c);margin-bottom:6px}
+.h-left-t{font-weight:700;font-size:15px;margin-bottom:2px}
+.h-all summary{font-size:8px;color:var(--muted);cursor:pointer;padding:6px 0}
+.h-row.not-mine{opacity:.55}
+.h-row.not-mine:disabled{cursor:default}
+.h-row.is-done .h-title{color:var(--muted)}

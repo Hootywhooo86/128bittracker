@@ -1071,25 +1071,42 @@ async function renderHistory(kind, retry = 0) {
   const h = await api('GET', `/stats/history/${encodeURIComponent(kind)}`);
   const c = KIND_COLOR[kind] ?? 'var(--teal)';
   const when = (d) => (d ? new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '');
-  const state = (e) => (e.status === 'done' ? `<span class="h-done">✓ ${esc(when(e.finished_at) || 'finished')}</span>`
+  const state = (e) => (e.status === 'done' ? `<span class="h-done">✓ ${esc(when(e.finished_at ?? e.finished_at_guess) || 'finished')}</span>`
     : e.status === 'active' ? `<span class="h-now">${e.pct != null ? `${e.pct}%` : 'in progress'}${e.watched != null ? ` · ${e.watched}/${e.total ?? '?'}` : ''}</span>`
-    : e.first_air ? `<span class="muted">starts ${esc(when(e.first_air))}</span>` : `<span class="muted">${esc(STATUS_LABEL[e.status] ?? e.status)}</span>`);
-  const row = (e, n) => `<button class="h-row" data-item="${e.id}">
-      <span class="h-n px">${e.position != null ? `#${esc(e.position)}` : n != null ? esc(n) : ''}</span>
-      ${e.cover_url ? `<span class="h-cover"><img src="${esc(e.cover_url)}" alt="" loading="lazy" referrerpolicy="no-referrer"></span>` : ''}
+    : e.first_air && e.first_air > todayStr() ? `<span class="muted">starts ${esc(when(e.first_air))}</span>`
+    : e.release_date && e.release_date > todayStr() ? `<span class="muted">out ${esc(when(e.release_date))}</span>`
+    : e.on_list ? '<span class="muted">on your list</span>'
+    : e.yours === false ? '<span class="muted">not yet</span>' : `<span class="muted">${esc(STATUS_LABEL[e.status] ?? 'not started')}</span>`);
+  const row = (e) => `<button class="h-row${e.yours === false ? ' not-mine' : ''}${e.status === 'done' ? ' is-done' : ''}" ${e.id ? `data-item="${e.id}"` : 'disabled'}>
+      <span class="h-n px">${e.position != null ? `#${esc(e.position)}` : ''}</span>
+      ${e.cover_url ? `<span class="h-cover"><img src="${esc(e.cover_url)}" alt="" loading="lazy" referrerpolicy="no-referrer"></span>` : '<span class="h-cover"></span>'}
       <span class="h-main"><span class="h-title">${esc(e.title)}</span>
-        ${e.pct != null && e.status !== 'done' ? `<span class="mini-bar"><span style="width:${e.pct}%"></span></span>` : ''}</span>
+        ${e.pct != null && e.status === 'active' ? `<span class="mini-bar"><span style="width:${e.pct}%"></span></span>` : ''}</span>
       <span class="h-state">${state(e)}</span></button>`;
+  const isBook = kind === 'audiobook' || kind === 'book';
+  // Where you left off: the one you're in the middle of, else the next after your furthest finished.
+  const leftOffBox = (g) => {
+    const lo = g.left_off;
+    if (!lo) return `<div class="h-left caught">✓ CAUGHT UP${g.items.at(-1)?.position != null ? ` · UP TO #${esc(g.items.at(-1).position)}` : ''}</div>`;
+    const verb = lo.status === 'active' ? (isBook ? 'KEEP LISTENING' : 'KEEP WATCHING') : 'NEXT UP';
+    const action = lo.id && isBook
+      ? `<a class="btn teal small" href="${esc(playLink({ type: 'book', title: lo.title, cover_url: lo.cover_url, meta: { play_id: lo.play_id } }))}">▶ ${kind === 'audiobook' ? 'LISTEN' : 'READ'}</a>`
+      : !lo.id && isBook ? `<button class="btn small" data-want="${esc(JSON.stringify({ title: lo.title, creator: g.by, cover_url: lo.cover_url, asin: lo.asin, series: g.name, position: lo.position }))}">+ GET IT</button>` : '';
+    return `<div class="h-left"><span class="h-cover big">${lo.cover_url ? `<img src="${esc(lo.cover_url)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ''}</span>
+      <div class="h-left-main"><div class="px h-left-k">${verb}</div><div class="h-left-t">${lo.position != null ? `#${esc(lo.position)} · ` : ''}${esc(lo.title)}</div>
+        <div class="muted" style="font-size:12px">${lo.status === 'active' ? `${lo.pct ?? 0}% in` : lo.release_date && lo.release_date > todayStr() ? `Out ${esc(when(lo.release_date))}` : lo.id ? 'In your library' : 'Not in your library yet'}</div>
+        <div class="row" style="margin-top:6px">${action}</div></div></div>`;
+  };
   const group = (g) => {
     const done = g.items.filter((e) => e.status === 'done').length;
     return `<section class="h-group" style="--c:${c}">
-      <div class="h-head"><div><div class="h-name">${esc(g.name)}</div><div class="muted" style="font-size:12px">${g.by ? esc(g.by) + ' · ' : ''}${done}/${g.items.length} finished</div></div>
+      <div class="h-head"><div><div class="h-name">${esc(g.name)}</div><div class="muted" style="font-size:12px">${g.by ? esc(g.by) + ' · ' : ''}${done} of ${g.items.length} finished${g.full_list ? '' : ''}</div></div>
         ${g.show?.cover_url ? `<span class="h-cover big"><img src="${esc(g.show.cover_url)}" alt="" loading="lazy" referrerpolicy="no-referrer"></span>` : ''}</div>
-      ${g.items.map((e) => row(e)).join('')}
-      ${g.next ? `<div class="h-next">NEXT UP: <button class="linkish" data-item="${g.next.id}">${g.next.position != null ? `#${esc(g.next.position)} ` : ''}${esc(g.next.title)}</button></div>` : ''}
+      ${leftOffBox(g)}
+      <details class="h-all"${g.items.length <= 6 ? ' open' : ''}><summary class="px">ALL ${g.items.length} ${kind === 'show' || kind === 'anime' ? 'SEASONS' : isBook ? 'BOOKS' : ''}</summary>${g.items.map(row).join('')}</details>
     </section>`;
   };
-  const total = (kind === 'show' || kind === 'anime' ? h.groups.length : h.groups.reduce((a, g) => a + g.items.length, 0)) + h.singles.length;
+  const total = (kind === 'show' || kind === 'anime' ? h.groups.length : h.groups.reduce((a, g) => a + g.items.filter((e) => e.yours !== false && e.status !== 'not_started').length, 0)) + h.singles.length;
   view.innerHTML = `
     <div class="row" style="margin-bottom:10px"><button class="btn ghost small" id="h-back">← STATS</button></div>
     <h1 class="view-title" style="--c:${c}"><span style="color:${c}">${esc(HISTORY_HEAD[kind] ?? kind.toUpperCase())}</span></h1>
@@ -1098,6 +1115,17 @@ async function renderHistory(kind, retry = 0) {
     ${h.singles.length ? `<section class="h-group" style="--c:${c}"><div class="h-head"><div class="h-name">${h.groups.length ? (kind === 'movie' ? 'ON THEIR OWN' : 'STANDALONE') : 'ALL'}</div></div>${h.singles.map((e) => row(e)).join('')}</section>` : ''}
     ${total ? '' : `<div class="empty"><span class="px">NOTHING YET</span>Start something and it shows up here.</div>`}`;
   $('#h-back').addEventListener('click', guard(renderStats));
+  // A book you don't have yet: onto your Audiobooks list (128bitPlay's Wanted).
+  view.querySelectorAll('[data-want]').forEach((b) => b.addEventListener('click', guard(async () => {
+    const w = JSON.parse(b.dataset.want);
+    const item = await api('POST', '/items', { type: 'book', title: w.title, creator: w.creator ?? null, cover_url: w.cover_url ?? null, status: 'planned',
+      meta: { format: kind === 'audiobook' ? 'audiobook' : null, asin: w.asin ?? null, series: w.series, series_position: w.position ?? null, series_checked_at: new Date().toISOString() } });
+    const lists = await api('GET', '/collections');
+    const list = lists.find((l) => /audio/i.test(l.name)) ?? lists.find((l) => l.kind === 'book');
+    if (list) await api('PUT', `/collections/${list.id}/items/${item.id}`);
+    toast(list ? `ADDED TO ${list.name.toUpperCase()}` : 'ADDED');
+    await renderHistory(kind);
+  })));
   view.querySelectorAll('[data-item]').forEach((b) => b.addEventListener('click', guard(async () => itemDetail(await api('GET', `/items/${b.dataset.item}`)))));
   window.scrollTo(0, 0);
   // Series are looked up a few titles at a time: show what's known, then fill in the rest.

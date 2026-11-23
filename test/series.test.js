@@ -34,8 +34,9 @@ test('stats history: audiobooks by series (Audible), in order, with what is next
   const h = await seriesHistory(c, 'audiobook');
   const by = Object.fromEntries(h.groups.map((g) => [g.name, g]));
   assert.deepEqual(by['Book of the Dead'].items.map((i) => i.title), ['Masquerade', 'Vengeance']);
-  assert.deepEqual(by['Azarinth Healer'].items.map((i) => i.position), [1, 2]);
-  assert.equal(by['Azarinth Healer'].next.title, 'Azarinth Healer, Book 3');
+  assert.deepEqual(by['Azarinth Healer'].items.map((i) => [i.position, i.status]), [[1, 'done'], [2, 'done'], [3, 'not_started']]);
+  assert.equal(by['Azarinth Healer'].left_off.title, 'Azarinth Healer, Book 3', 'left off: the one after the furthest finished');
+  assert.equal(by['Book of the Dead'].left_off.title, 'Vengeance', 'or the one you are part-way through');
   assert.deepEqual(h.singles.map((i) => i.title), ['Lonely Book']);
 });
 
@@ -47,4 +48,29 @@ test('stats history: shows with their seasons', async () => {
   const h = await seriesHistory(c, 'show');
   assert.equal(h.groups.length, 1);
   assert.deepEqual(h.groups[0].items.map((s) => [s.title, s.status, s.pct]), [['Season 1', 'done', 100], ['Season 2', 'active', 33]]);
+});
+
+test('left off in a series: over its full Audible list, finished at 97%+', async () => {
+  const series = { asin: 'S1', title: "Ajax's Ascension" };
+  const all = [['B1', "Ajax's Ascension", 1], ['B2', "Ajax's Ascension: The Capital", 2], ['B3', "Ajax's Ascension: The Baron", 3], ['B4', 'The Tournament', 4], ['B5', "Ajax's Ascension: The Delves", 5]];
+  const fetch = async (url) => {
+    const u = new URL(String(url));
+    const body = (x) => new Response(JSON.stringify(x), { status: 200 });
+    if (u.pathname.endsWith('/products/S1')) return body({ product: { relationships: all.map(([asin, , n]) => ({ asin, sequence: String(n), relationship_type: 'series', relationship_to_product: 'child' })) } });
+    if (u.searchParams.get('asins')) return body({ products: all.map(([asin, title]) => ({ asin, title })) });
+    const q = u.searchParams.get('keywords') ?? '';
+    const hit = all.find(([, t]) => t.toLowerCase().includes(q.split(' Keleros')[0].toLowerCase()));
+    return body({ products: hit ? [{ asin: hit[0], title: hit[1], authors: [{ name: 'Keleros' }], series: [{ ...series, sequence: String(hit[2]) }] }] : [] });
+  };
+  const db = openDb(':memory:');
+  const c = { db, events: createEventBus(db), fetch };
+  const a = (title, status, pct) => createItem(c, { type: 'book', title, creator: 'Keleros', status, meta: { format: 'audiobook', ...(pct != null ? { pct } : {}) } });
+  a('The Capital', 'active', 98); // played to the credits: finished
+  a('The Baron', 'done');
+  a('The Tournament', 'done');
+  const h = await seriesHistory(c, 'audiobook');
+  const g = h.groups.find((x) => x.name === "Ajax's Ascension");
+  assert.ok(g.full_list);
+  assert.deepEqual(g.items.map((i) => [i.position, i.status, i.yours]), [[1, 'not_started', false], [2, 'done', true], [3, 'done', true], [4, 'done', true], [5, 'not_started', false]]);
+  assert.equal(g.left_off.title, "Ajax's Ascension: The Delves", 'next after the furthest finished, even if you never had it');
 });

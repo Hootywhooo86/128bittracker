@@ -58,12 +58,21 @@ const ART = {
   ],
 };
 
-/** SVG markup for a trophy. `size` in CSS px; pixels stay crisp. */
-export function trophySvg(kind, size = 64, { locked = false } = {}) {
+/** SVG markup for a trophy. `size` in CSS px; pixels stay crisp.
+ *  `glint`: a pixel shine sweeps across the gold now and then (styled in app.css). */
+let glints = 0;
+export function trophySvg(kind, size = 64, { locked = false, glint = false } = {}) {
   const rects = (ART[kind] ?? [])
     .map(([x, y, w, h, c]) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${locked ? lockedColor(c) : PAL[c]}"/>`)
     .join('');
-  return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" shape-rendering="crispEdges" aria-hidden="true">${rects}</svg>`;
+  let shine = '';
+  if (glint && !locked) {
+    // A stepped diagonal band, clipped to the trophy's own pixels.
+    const id = `tg${++glints}`;
+    const band = Array.from({ length: 13 }, (_, r) => `<rect x="${12 - r}" y="${r * 2}" width="3" height="2"/>`).join('');
+    shine = `<clipPath id="${id}">${rects}</clipPath><g clip-path="url(#${id})"><g class="glint" fill="#fff" fill-opacity=".75">${band}</g></g>`;
+  }
+  return `<svg class="trophy-svg" viewBox="0 0 24 24" width="${size}" height="${size}" shape-rendering="crispEdges" aria-hidden="true">${rects}${shine}</svg>`;
 }
 
 // Unearned trophies show as dim silhouettes.

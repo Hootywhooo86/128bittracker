@@ -45,7 +45,7 @@ html = html
   .replace(/\s*<link rel="preconnect"[^>]*>/g, '')
   .replace(/\s*<link href="https:\/\/fonts\.googleapis\.com[^>]*>/g, '')
   .replace('CONNECT</button>', 'SYNC</button>')
-  .replace('<span class="ico">🔌</span>', '<span class="ico">🔄</span>');
+  .replace('<span class="ico" data-px="plug"></span>', '<span class="ico" data-px="sync"></span>');
 await writeFile(join(www, 'index.html'), html);
 
 await cp(join(root, 'node_modules', 'sql.js', 'dist', 'sql-wasm-browser.wasm'), join(www, 'sql-wasm-browser.wasm'));

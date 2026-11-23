@@ -18,7 +18,7 @@ a{color:var(--teal)}
 .shell{position:relative;z-index:1;max-width:1080px;margin:0 auto;padding:0 16px 110px}
 .top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px 0 10px}
 .logo{display:flex;align-items:center;gap:12px;font-family:var(--px);font-size:13px;white-space:nowrap}
-.logo-mark{width:30px;height:30px;background:var(--orange);display:grid;place-items:center;font-size:15px;
+.logo-mark{width:32px;height:32px;background:var(--orange);display:grid;place-items:center;flex:none;
   box-shadow:0 4px 0 var(--orange-d),4px 0 0 var(--orange-d),-4px 0 0 var(--orange-d),0 -4px 0 var(--orange-d)}
 .tabs{display:flex;gap:6px}
 .tab{font-family:var(--px);font-size:9px;letter-spacing:1px;background:transparent;border:3px solid transparent;
@@ -30,7 +30,7 @@ a{color:var(--teal)}
   .tabs{position:fixed;left:0;right:0;bottom:0;z-index:20;background:#0f0f22;border-top:3px solid var(--orange);
     padding:8px 6px calc(8px + env(safe-area-inset-bottom));justify-content:space-around}
   .tab{display:flex;flex-direction:column;align-items:center;gap:6px;font-size:7px;padding:6px 4px;flex:1}
-  .tab .ico{display:block;font-size:18px;font-family:var(--sans)}
+  .tab .ico{display:block;line-height:0}
   .tab[aria-current="page"]{box-shadow:0 3px 0 var(--teal-d)}
 }
 
@@ -119,8 +119,8 @@ textarea.input{min-height:90px;resize:vertical}
 .tile-body{padding:10px}
 .tile-title{font-weight:700;font-size:14px;line-height:1.3;overflow-wrap:anywhere}
 .tile-sub{font-size:12px;color:var(--muted);margin-top:4px}
-.mini-bar{height:6px;background:var(--panel-2);margin-top:8px}
-.mini-bar span{display:block;height:100%;background:var(--teal)}
+.mini-bar{height:8px;margin-top:8px;background:repeating-linear-gradient(90deg,var(--panel-2) 0 6px,transparent 6px 8px)}
+.mini-bar span{display:block;height:100%;background:repeating-linear-gradient(90deg,var(--teal) 0 6px,transparent 6px 8px)}
 .tile-prog{font-size:11px;color:var(--muted);margin-top:4px;line-height:1.4}
 .where{margin:-4px 0 16px}.where .mini-bar{margin:0 0 6px}.where .muted{font-size:13px}
 .stars{font-family:var(--px);font-size:8px;color:var(--orange);margin-top:6px}
@@ -277,7 +277,7 @@ details.advanced>summary::-webkit-details-marker{display:none}
 details.advanced>summary::before{content:'▸ ';color:var(--muted)}
 details.advanced[open]>summary::before{content:'▾ '}
 
-.tl-bar{position:relative;height:4px;background:var(--panel-2);margin:6px 0 2px;max-width:320px}
+.tl-bar{position:relative;height:6px;background:var(--panel-2);margin:6px 0 2px;max-width:320px}
 .tl-bar span{position:absolute;top:0;bottom:0;background:var(--c,var(--teal))}
 .lib-sec{margin-bottom:18px}
 .lib-sec>summary{cursor:pointer;list-style:none}
@@ -327,6 +327,185 @@ h3.sub.kind{color:var(--c)}
 #pull-sync{position:fixed;top:0;left:0;right:0;z-index:50;height:0;overflow:hidden;display:flex;align-items:center;justify-content:center;
   background:var(--panel);color:var(--teal);font-size:10px;border-bottom:0 solid var(--teal);transition:height .15s}
 #pull-sync.on{border-bottom-width:3px}
+
+/* =====================================================================
+   128bit pixel-art layer: stepped corners, CRT feel, pixel icons, motion
+   ===================================================================== */
+:root{--s:3px;--o:0px;--dur:.28s}
+
+/* ---------- CRT scanlines + dither behind everything ---------- */
+body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:
+    repeating-linear-gradient(180deg,rgba(255,255,255,.022) 0 1px,transparent 1px 3px),
+    conic-gradient(rgba(255,255,255,.018) 25%,transparent 0 50%,rgba(255,255,255,.018) 0 75%,transparent 0) 0 0/4px 4px,
+    radial-gradient(ellipse at 50% 40%,transparent 55%,rgba(0,0,0,.38) 100%)}
+
+/* ---------- pixel icons ---------- */
+.pxi,.trophy-svg{image-rendering:pixelated;flex:none}
+.pxi{display:inline-block;vertical-align:-2px}
+h2.sec .pxi,summary.sec .pxi,h3.sub .pxi{vertical-align:-1px;margin-right:2px}
+.logo-mark .pxi{display:block}
+.tab .ico .pxi{display:block}
+.h3-ico{display:inline-block;vertical-align:-6px;margin-right:10px;line-height:0}
+.cover-ico{display:grid;place-items:center;line-height:0;opacity:.92}
+.cover .cover-ico .pxi{width:72px;height:72px}
+.cal-entry .cover-ico .pxi,.coming-ico .pxi{width:24px;height:24px}
+.up-cover .cover-ico .pxi{width:36px;height:36px}
+.chip .pxi{vertical-align:-1px}
+.tile-sub .pxi,.al-row .pxi,.lib-stats .pxi{margin-right:3px}
+.streak{display:inline-flex;align-items:center;gap:4px}
+.kpi .v{display:flex;align-items:center;gap:8px}
+.toast .pxi{vertical-align:-1px;margin-right:4px}
+
+/* ---------- stepped ("pixel") corners ----------
+   --s: the step; --o: how far the hard shadow sits off (it is clipped to steps too). */
+.input,.chip,.ep-row,.sr-item,.cal-entry,.color-row,.platform,.shelf-item,.trophy-row,.preset,.rating button,.cal-day,
+.code,.secret,.status,.app-tag,.pill,.empty,.card-ico,.coming-date,.shelf,.src,.legend i{
+  clip-path:polygon(0 var(--s),var(--s) var(--s),var(--s) 0,calc(100% - var(--s)) 0,calc(100% - var(--s)) var(--s),100% var(--s),
+    100% calc(100% - var(--s)),calc(100% - var(--s)) calc(100% - var(--s)),calc(100% - var(--s)) 100%,var(--s) 100%,
+    var(--s) calc(100% - var(--s)),0 calc(100% - var(--s)))}
+.status,.app-tag,.pill,.cal-day,.ep-row,.sr-item,.src,.legend i,.coming-date{--s:2px}
+/* panels with a hard shadow down-right */
+.card,.tile,.kpi,.modal,.up-card,.cal,.family,.update,.celebrate-card{
+  clip-path:polygon(0 var(--s),var(--s) var(--s),var(--s) 0,calc(100% - var(--s)) 0,calc(100% - var(--s)) var(--s),100% var(--s),
+    100% var(--o),calc(100% + var(--o) - var(--s)) var(--o),calc(100% + var(--o) - var(--s)) calc(var(--o) + var(--s)),
+    calc(100% + var(--o)) calc(var(--o) + var(--s)),calc(100% + var(--o)) calc(100% + var(--o) - var(--s)),
+    calc(100% + var(--o) - var(--s)) calc(100% + var(--o) - var(--s)),calc(100% + var(--o) - var(--s)) calc(100% + var(--o)),
+    calc(var(--o) + var(--s)) calc(100% + var(--o)),calc(var(--o) + var(--s)) calc(100% + var(--o) - var(--s)),
+    var(--o) calc(100% + var(--o) - var(--s)),var(--o) 100%,var(--s) 100%,var(--s) calc(100% - var(--s)),0 calc(100% - var(--s)))}
+.card{--o:6px}.tile,.kpi,.family,.update{--o:5px}.up-card,.cal{--o:4px}.modal,.celebrate-card{--o:8px}
+.celebrate-card{box-shadow:8px 8px 0 var(--shadow)}
+/* buttons, the active tab, toasts: the 3D lip straight down, stepped at its corners too */
+.btn,.tab[aria-current="page"],.toast{--o:4px;
+  clip-path:polygon(0 var(--s),var(--s) var(--s),var(--s) 0,calc(100% - var(--s)) 0,calc(100% - var(--s)) var(--s),100% var(--s),
+    100% calc(100% + var(--o) - var(--s)),calc(100% - var(--s)) calc(100% + var(--o) - var(--s)),calc(100% - var(--s)) calc(100% + var(--o)),
+    var(--s) calc(100% + var(--o)),var(--s) calc(100% + var(--o) - var(--s)),0 calc(100% + var(--o) - var(--s)))}
+.btn.small{--s:2px}
+/* clipped boxes can't show an outside focus ring: draw it inside */
+.btn:focus-visible,.chip:focus-visible,.tile:focus-visible,.tab:focus-visible,.ep-row:focus-visible,.cal-day:focus-visible,.preset:focus-visible,.sr-item:focus-visible{outline:3px solid var(--ink);outline-offset:-6px}
+
+/* the timeline: each entry a stepped panel, the dot outside it on the line */
+.tl-item{margin:0 0 8px 12px;padding:9px 12px 10px 14px;isolation:isolate}
+.tl-item::after{content:"";position:absolute;inset:0;z-index:-1;background:var(--panel);border-left:3px solid var(--c,var(--teal));
+  clip-path:polygon(0 3px,3px 3px,3px 0,calc(100% - 3px) 0,calc(100% - 3px) 3px,100% 3px,100% calc(100% - 3px),calc(100% - 3px) calc(100% - 3px),calc(100% - 3px) 100%,3px 100%,3px calc(100% - 3px),0 calc(100% - 3px))}
+.tl-item::before{left:-17px;top:14px;width:8px;height:8px;box-shadow:0 0 0 3px var(--bg)}
+
+/* list rows: a stepped underline of dashes */
+.list-row{border-bottom:0;background:repeating-linear-gradient(90deg,var(--line) 0 6px,transparent 6px 10px) bottom/100% 2px no-repeat}
+.list-items .list-row{background:var(--panel);padding:8px 10px;
+  clip-path:polygon(0 3px,3px 3px,3px 0,calc(100% - 3px) 0,calc(100% - 3px) 3px,100% 3px,100% calc(100% - 3px),calc(100% - 3px) calc(100% - 3px),calc(100% - 3px) 100%,3px 100%,3px calc(100% - 3px),0 calc(100% - 3px))}
+
+/* ---------- pixel scrollbars ---------- */
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--line);border:2px solid var(--bg);box-shadow:inset 2px 2px 0 #3a3a6a,inset -2px -2px 0 var(--shadow)}
+::-webkit-scrollbar-thumb:hover{background:var(--teal-d)}
+::-webkit-scrollbar-corner{background:var(--bg)}
+
+/* ---------- loading: blinking block cursor ---------- */
+.boot-loading{padding:60px 0;text-align:center}
+.px-loading{font-family:var(--px);font-size:9px;letter-spacing:1px;color:var(--muted);display:inline-flex;align-items:flex-end;line-height:1}
+.px-loading .dots{display:inline-block;overflow:hidden;width:0;white-space:nowrap;animation:px-dots 1.2s steps(4) infinite}
+.px-loading .dots::after{content:"...";font-style:normal}
+.px-loading .cursor{display:inline-block;width:8px;height:9px;margin-left:3px;background:var(--teal);animation:px-blink .8s steps(1) infinite}
+@keyframes px-dots{to{width:4ch}}
+@keyframes px-blink{50%{opacity:0}}
+
+/* ---------- pull to sync ---------- */
+#pull-sync{gap:8px}
+.ps-ico{display:inline-flex;line-height:0}
+.ps-ico.down{animation:px-bounce .5s steps(2) infinite}
+.ps-ico.up{transform:rotate(180deg)}
+.ps-ico.up .pxi{animation:px-bounce .5s steps(2) infinite}
+.ps-ico.spin{animation:px-spin .6s steps(4) infinite}
+@keyframes px-bounce{50%{transform:translateY(3px)}}
+@keyframes px-spin{to{transform:rotate(360deg)}}
+
+/* ---------- motion ---------- */
+/* a new view: its sections pop in one after another */
+#view.enter>*{animation:px-in var(--dur) steps(4) backwards}
+#view.enter>:nth-child(2){animation-delay:40ms}#view.enter>:nth-child(3){animation-delay:80ms}
+#view.enter>:nth-child(4){animation-delay:120ms}#view.enter>:nth-child(5){animation-delay:160ms}
+#view.enter>:nth-child(6){animation-delay:200ms}#view.enter>:nth-child(7){animation-delay:240ms}
+#view.enter>:nth-child(8){animation-delay:280ms}#view.enter>:nth-child(n+9){animation-delay:320ms}
+#view.enter .lib .tile:nth-child(-n+20),#view.enter .cards>.card:nth-child(-n+12),#view.enter .kpi{animation:px-in var(--dur) steps(4) backwards;animation-delay:calc(var(--n,0) * 30ms + 120ms)}
+.lib .tile:nth-child(4n+2),.kpis .kpi:nth-child(2){--n:1}.lib .tile:nth-child(4n+3),.kpis .kpi:nth-child(3){--n:2}.lib .tile:nth-child(4n+4),.kpis .kpi:nth-child(4){--n:3}
+.kpis .kpi:nth-child(5){--n:4}.kpis .kpi:nth-child(6){--n:5}
+@keyframes px-in{from{opacity:0;transform:translateY(6px)}50%{opacity:.6}}
+
+/* tabs: the active one presses down and bounces back; its icon hops */
+.tab[aria-current="page"]{animation:px-press .3s steps(3)}
+.tab[aria-current="page"] .ico{animation:px-hop .4s steps(4)}
+@keyframes px-press{0%{transform:translateY(3px)}60%{transform:translateY(-2px)}100%{transform:none}}
+@keyframes px-hop{0%,100%{transform:none}50%{transform:translateY(-5px)}}
+
+/* buttons, chips, tabs: a pixel flash when pressed (the class is set on pointerdown) */
+.btn,.chip,.tab{position:relative}
+.flash::after{content:"";position:absolute;inset:0;background:#fff;pointer-events:none;animation:px-flash .22s steps(2) forwards}
+@keyframes px-flash{0%{opacity:.5}100%{opacity:0}}
+.btn{transition:transform .08s steps(2),box-shadow .08s steps(2)}
+
+/* bars fill from empty, a block at a time */
+.mini-bar span,.tl-bar span{animation:px-fill .4s steps(8) backwards}
+.lib .tile .mini-bar span{animation:none}
+#view.enter .lib .tile:nth-child(-n+20) .mini-bar span{animation:px-fill .4s steps(8) backwards .2s}
+@keyframes px-fill{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0)}}
+.bar i.on{animation:px-seg .16s steps(2) backwards;animation-delay:calc(var(--i,0) * 35ms)}
+@keyframes px-seg{from{opacity:0;transform:scaleY(.4)}}
+
+/* lists and tiles lift a pixel or two */
+.tile,.coming-item,.sr-item,.shelf-item{transition:transform .12s steps(2)}
+.tile:hover{transform:translateY(-3px)}
+.tile:active,.coming-item:active,.sr-item:active{transform:translateY(1px)}
+.coming-item:hover,.sr-item:hover,.shelf-item:hover{transform:translateY(-2px)}
+
+/* trophies: an idle bob, and a glint sweeping over the gold */
+.shelf-slot.won .trophy-svg,.trophy-row .trophy-svg,.celebrate-art .trophy-svg{animation:px-bob 1.6s steps(1,end) infinite}
+.shelf-slot.won:nth-child(2) .trophy-svg{animation-delay:-.4s}.shelf-slot.won:nth-child(3) .trophy-svg{animation-delay:-.8s}
+.shelf-slot.won:nth-child(4) .trophy-svg{animation-delay:-1.2s}
+@keyframes px-bob{0%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+.glint{transform:translateX(-18px);animation:px-glint 3.6s infinite}
+.shelf-slot:nth-child(2) .glint{animation-delay:.5s}.shelf-slot:nth-child(3) .glint{animation-delay:1s}
+.shelf-slot:nth-child(4) .glint{animation-delay:1.5s}.shelf-slot:nth-child(5) .glint{animation-delay:2s}
+@keyframes px-glint{0%{transform:translateX(-18px);animation-timing-function:steps(12)}30%,100%{transform:translateX(26px)}}
+
+/* the trophy-earned burst */
+.sparkle{position:fixed;z-index:90;width:0;height:0;pointer-events:none}
+.sparkle i{position:absolute;left:0;top:0;width:var(--s);height:var(--s);margin:calc(var(--s) / -2);animation:px-spark .8s steps(6) forwards}
+@keyframes px-spark{0%{transform:translate(0,0);opacity:1}70%{opacity:1}100%{transform:translate(var(--dx),var(--dy)) scale(.5);opacity:0}}
+.toast.gold{background:#ffc72c;color:#3a2400;box-shadow:0 4px 0 #a06a00}
+
+/* toasts pop in and drop out */
+.toast{animation:px-toast-in .24s steps(4) both}
+.toast.out{animation:px-toast-out .18s steps(3) forwards}
+@keyframes px-toast-in{0%{transform:translate(-50%,18px) scale(.85);opacity:0}60%{transform:translate(-50%,-3px) scale(1.03);opacity:1}100%{transform:translate(-50%,0)}}
+@keyframes px-toast-out{to{transform:translate(-50%,14px);opacity:0}}
+
+/* the year in pixels fades in corner to corner */
+.pixels i{animation:px-cell .24s steps(3) backwards;animation-delay:calc(var(--d,0) * 9ms)}
+@keyframes px-cell{from{opacity:0;transform:scale(.3)}}
+
+/* an episode ticked: its box pops */
+.ep-row.ticked .px-check{animation:px-check .3s steps(3)}
+@keyframes px-check{0%{transform:scale(.5)}60%{transform:scale(1.35)}100%{transform:none}}
+.ep-row{transition:transform .1s steps(2)}
+.ep-row:active{transform:translateY(1px)}
+
+/* modals blink-zoom in and out */
+.modal-bg{animation:px-fade .16s steps(2) both}
+.modal{animation:px-zoom .26s steps(4) both}
+.modal-bg.out{animation:px-fade-out .14s steps(2) forwards}
+.modal-bg.out .modal{animation:px-zoom-out .14s steps(2) forwards}
+.celebrate{animation:px-fade .16s steps(2) both}
+@keyframes px-fade{from{opacity:0}}
+@keyframes px-fade-out{to{opacity:0}}
+@keyframes px-zoom{0%{transform:scale(.6);opacity:0}40%{transform:scale(1.04);opacity:1}60%{opacity:.55}80%{opacity:1}100%{transform:none}}
+@keyframes px-zoom-out{to{transform:scale(.85);opacity:0}}
+
+/* everything holds still for people who ask for less motion */
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important}
+}
 /* Stats → one kind, by series */
 .lib-stats tr[data-history]{cursor:pointer}
 .lib-stats tr[data-history]:hover td,.lib-stats tr[data-history]:focus td{background:var(--panel-2)}
@@ -355,3 +534,16 @@ h3.sub.kind{color:var(--c)}
 .h-row.not-mine{opacity:.55}
 .h-row.not-mine:disabled{cursor:default}
 .h-row.is-done .h-title{color:var(--muted)}
+/* Series cards: stepped corners, pop in one by one, rows follow, the left-off box breathes */
+.h-group,.h-left{clip-path:polygon(0 var(--s),var(--s) var(--s),var(--s) 0,calc(100% - var(--s)) 0,calc(100% - var(--s)) var(--s),100% var(--s),
+    100% calc(100% - var(--s)),calc(100% - var(--s)) calc(100% - var(--s)),calc(100% - var(--s)) 100%,var(--s) 100%,
+    var(--s) calc(100% - var(--s)),0 calc(100% - var(--s)))}
+#view.enter .h-group{animation:px-in var(--dur,.3s) steps(4) backwards;animation-delay:calc(var(--n,0) * 70ms + 80ms)}
+#view.enter .h-group .h-row:nth-child(-n+12){animation:px-in .24s steps(3) backwards;animation-delay:calc(var(--n,0) * 70ms + 200ms)}
+.h-left:not(.caught){animation:h-breathe 2.4s steps(6) infinite}
+@keyframes h-breathe{0%,100%{border-color:var(--c)}50%{border-color:color-mix(in srgb,var(--c) 45%,transparent)}}
+.h-left .btn{animation:none}
+.h-row{transition:transform .12s steps(2)}
+.h-row:not(:disabled):hover{transform:translateX(3px)}
+.h-left-k svg,.h-left.caught svg{vertical-align:-1px}
+@media (prefers-reduced-motion: reduce){.h-left,#view.enter .h-group,#view.enter .h-group .h-row{animation:none}}

@@ -97,7 +97,7 @@ async function audiobooks(fetch, q) {
 const AUDIBLE_GROUPS = 'product_desc,contributors,media,series,product_attrs,product_extended_attrs';
 
 // Audible's own catalog: narrator, length, series and pre-order dates. No key.
-async function audible(fetch, q) {
+export async function audible(fetch, q) {
   const url = `https://api.audible.com/1.0/catalog/products?${new URLSearchParams({ keywords: q, num_results: '20', products_sort_by: 'Relevance', image_sizes: '500,1215', response_groups: AUDIBLE_GROUPS })}`;
   const j = await getJson(fetch, url, { headers: { Accept: 'application/json' } });
   return (j.products ?? []).filter((p) => p.asin && p.title).map((p) => {

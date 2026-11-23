@@ -17,6 +17,7 @@ import * as hub from '../integrations/hub.js';
 import * as health from '../integrations/health.js';
 import { localStarterLists } from '../integrations/starter-lists.js';
 import { episodeTracker, episodesFor, trackerView } from '../integrations/episodes.js';
+import { seriesHistory } from '../integrations/series.js';
 import { isShow, setSeasonProgress } from '../domain/seasons.js';
 
 export const API_VERSION = '1';
@@ -108,6 +109,11 @@ export function addCoreRoutes(r, ctx) {
 
   // --- stats + export -------------------------------------------------------------
   r.get('/api/v1/stats', 'read', () => stats.overview(ctx));
+  // Everything of one kind you've watched / read / listened to, by series (books), collection (movies) or show.
+  r.get('/api/v1/stats/history/:kind', 'read', ({ params, query }) => {
+    if (!/^[a-z][a-z0-9_]{0,23}$/.test(params.kind)) throw new HttpError(400, 'invalid kind');
+    return seriesHistory(ctx, params.kind, { lookup: query.lookup !== '0' });
+  });
   r.get('/api/v1/stats/year/:year', 'read', ({ params }) => {
     const y = Number(params.year);
     if (!Number.isInteger(y) || y < 1970 || y > 2999) throw new HttpError(400, 'invalid year');

@@ -27,8 +27,8 @@ async function getJson(fetch, url, init) {
 }
 
 // TMDB (your key, or 128bit's through Connect): '' = Connect adds it, null = none.
-const tmdbToken = (ctx) => serviceConfig(ctx, 'tmdb').token || (hubOn(ctx) ? '' : null);
-function tmdbGet(ctx, path) {
+export const tmdbToken = (ctx) => serviceConfig(ctx, 'tmdb').token || (hubOn(ctx) ? '' : null);
+export function tmdbGet(ctx, path) {
   const token = tmdbToken(ctx);
   if (token == null) return null;
   const v4 = token.length > 40;

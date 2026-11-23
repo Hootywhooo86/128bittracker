@@ -1048,8 +1048,14 @@ async function renderStats() {
     <p class="px-day muted" id="px-day">${dayLine(byDay.get(todayStr()) ?? pixels.days.at(-1))}</p>
     <h2 class="sec">LIBRARY</h2>
     ${lib.length ? `<div class="table-wrap"><table class="lib-stats"><thead><tr><th>TYPE</th><th class="n">TOTAL</th><th class="n">ACTIVE</th><th class="n">DONE</th><th class="n">TIME</th></tr></thead><tbody>
-      ${lib.map(([t, v]) => `<tr><td>${esc(t === 'audiobook' ? '🎧' : META.item_types[t]?.icon ?? '📦')} ${esc(t)}</td><td class="n">${v.total}</td><td class="n">${v.active ?? 0}</td><td class="n">${v.done ?? 0}</td><td class="n">${v.minutes ? fmtMin(v.minutes) : '—'}</td></tr>`).join('')}
+      ${lib.map(([t, v]) => `<tr data-history="${esc(t)}" tabindex="0" title="Everything you've ${t === 'audiobook' ? 'listened to' : 'watched / read / played'}"><td>${esc(t === 'audiobook' ? '🎧' : META.item_types[t]?.icon ?? '📦')} ${esc(t)}</td><td class="n">${v.total}</td><td class="n">${v.active ?? 0}</td><td class="n">${v.done ?? 0}</td><td class="n">${v.minutes ? fmtMin(v.minutes) : '—'}</td></tr>`).join('')}
     </tbody></table></div>` : `<p class="muted">Library is empty.</p>`}`;
+  // Tap a type: everything of it you've watched, read or listened to, by series.
+  view.querySelectorAll('[data-history]').forEach((r) => {
+    const open = guard(() => renderHistory(r.dataset.history));
+    r.addEventListener('click', open);
+    r.addEventListener('keydown', (e) => { if (e.key === 'Enter') open(); });
+  });
   // Tap a day to see what it was.
   view.querySelectorAll('.pixels [data-day]').forEach((c) => c.addEventListener('click', () => {
     view.querySelectorAll('.pixels .sel').forEach((x) => x.classList.remove('sel'));
@@ -1057,6 +1063,47 @@ async function renderStats() {
     $('#px-day').innerHTML = dayLine(byDay.get(c.dataset.day));
   }));
 }
+// ---------- STATS → one kind, by series ----------
+const HISTORY_HEAD = { audiobook: 'AUDIOBOOKS YOU\'VE LISTENED TO', book: 'BOOKS YOU\'VE READ', show: 'SHOWS YOU\'VE WATCHED', anime: 'ANIME YOU\'VE WATCHED',
+  movie: 'MOVIES YOU\'VE WATCHED', comic: 'COMICS YOU\'VE READ', game: 'GAMES YOU\'VE PLAYED' };
+async function renderHistory(kind, retry = 0) {
+  if (!retry) view.innerHTML = `<p class="muted px" style="font-size:10px;margin-top:30px">LOADING…</p>`;
+  const h = await api('GET', `/stats/history/${encodeURIComponent(kind)}`);
+  const c = KIND_COLOR[kind] ?? 'var(--teal)';
+  const when = (d) => (d ? new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '');
+  const state = (e) => (e.status === 'done' ? `<span class="h-done">✓ ${esc(when(e.finished_at) || 'finished')}</span>`
+    : e.status === 'active' ? `<span class="h-now">${e.pct != null ? `${e.pct}%` : 'in progress'}${e.watched != null ? ` · ${e.watched}/${e.total ?? '?'}` : ''}</span>`
+    : e.first_air ? `<span class="muted">starts ${esc(when(e.first_air))}</span>` : `<span class="muted">${esc(STATUS_LABEL[e.status] ?? e.status)}</span>`);
+  const row = (e, n) => `<button class="h-row" data-item="${e.id}">
+      <span class="h-n px">${e.position != null ? `#${esc(e.position)}` : n != null ? esc(n) : ''}</span>
+      ${e.cover_url ? `<span class="h-cover"><img src="${esc(e.cover_url)}" alt="" loading="lazy" referrerpolicy="no-referrer"></span>` : ''}
+      <span class="h-main"><span class="h-title">${esc(e.title)}</span>
+        ${e.pct != null && e.status !== 'done' ? `<span class="mini-bar"><span style="width:${e.pct}%"></span></span>` : ''}</span>
+      <span class="h-state">${state(e)}</span></button>`;
+  const group = (g) => {
+    const done = g.items.filter((e) => e.status === 'done').length;
+    return `<section class="h-group" style="--c:${c}">
+      <div class="h-head"><div><div class="h-name">${esc(g.name)}</div><div class="muted" style="font-size:12px">${g.by ? esc(g.by) + ' · ' : ''}${done}/${g.items.length} finished</div></div>
+        ${g.show?.cover_url ? `<span class="h-cover big"><img src="${esc(g.show.cover_url)}" alt="" loading="lazy" referrerpolicy="no-referrer"></span>` : ''}</div>
+      ${g.items.map((e) => row(e)).join('')}
+      ${g.next ? `<div class="h-next">NEXT UP: <button class="linkish" data-item="${g.next.id}">${g.next.position != null ? `#${esc(g.next.position)} ` : ''}${esc(g.next.title)}</button></div>` : ''}
+    </section>`;
+  };
+  const total = (kind === 'show' || kind === 'anime' ? h.groups.length : h.groups.reduce((a, g) => a + g.items.length, 0)) + h.singles.length;
+  view.innerHTML = `
+    <div class="row" style="margin-bottom:10px"><button class="btn ghost small" id="h-back">← STATS</button></div>
+    <h1 class="view-title" style="--c:${c}"><span style="color:${c}">${esc(HISTORY_HEAD[kind] ?? kind.toUpperCase())}</span></h1>
+    <p class="view-sub">${total} ${kind === 'show' || kind === 'anime' ? (total === 1 ? 'show' : 'shows') : total === 1 ? 'title' : 'titles'}${h.groups.length && kind !== 'show' && kind !== 'anime' ? ` · ${h.groups.length} ${kind === 'movie' ? 'collections' : 'series'}` : ''}, most recent first.${h.pending ? ' <span class="muted">Still finding series for a few…</span>' : ''}</p>
+    ${h.groups.map(group).join('')}
+    ${h.singles.length ? `<section class="h-group" style="--c:${c}"><div class="h-head"><div class="h-name">${h.groups.length ? (kind === 'movie' ? 'ON THEIR OWN' : 'STANDALONE') : 'ALL'}</div></div>${h.singles.map((e) => row(e)).join('')}</section>` : ''}
+    ${total ? '' : `<div class="empty"><span class="px">NOTHING YET</span>Start something and it shows up here.</div>`}`;
+  $('#h-back').addEventListener('click', guard(renderStats));
+  view.querySelectorAll('[data-item]').forEach((b) => b.addEventListener('click', guard(async () => itemDetail(await api('GET', `/items/${b.dataset.item}`)))));
+  window.scrollTo(0, 0);
+  // Series are looked up a few titles at a time: show what's known, then fill in the rest.
+  if (h.pending && retry < 6) setTimeout(() => { if ($('#h-back')) renderHistory(kind, retry + 1).catch(() => {}); }, 400);
+}
+
 const kpi = (k, v, s) => `<div class="kpi"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div><div class="s">${esc(s)}</div></div>`;
 
 // One account: the catalogs come built in. Other trackers are only for moving in.

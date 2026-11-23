@@ -3,6 +3,7 @@
 import { request, platform } from './transport.js';
 import { trophySvg, TROPHY_KINDS } from './trophy-art.js';
 import { sittingWhere, fixSittingTitle } from './sitting.js';
+import { pxIcon, typeIconName } from './pixel-icons.js';
 
 const APP_COLORS = {
   '128bittracker': '#2dd4bf', '128bitplay': '#ff5d8f', '128bitfit': '#fb923c', '128bitgold': '#facc15',
@@ -30,14 +31,37 @@ async function api(method, path, body) {
 const TROPHY_NAMES = { controller: 'GOLDEN CONTROLLER', vhs: 'GOLDEN VHS', tv: 'GOLDEN TV', anime: 'GOLDEN IDOL', cd: 'GOLDEN CD' };
 const TROPHY_FOR = { controller: '100% a game', vhs: 'Finish a movie', tv: 'Finish a show season', anime: 'Finish an anime series', cd: 'Finish an audiobook' };
 
-function celebrate(t) {
+const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
+/** A burst of gold pixel sparkles from a point (default: the middle of the screen). */
+function sparkle({ x = innerWidth / 2, y = innerHeight / 2, n = 18 } = {}) {
+  if (reducedMotion()) return;
+  const burst = document.createElement('div');
+  burst.className = 'sparkle';
+  burst.setAttribute('aria-hidden', 'true');
+  burst.style.cssText = `left:${Math.round(x)}px;top:${Math.round(y)}px`;
+  const colors = ['#ffc72c', '#fff0a0', '#ff9f1c', '#f4f1ff'];
+  burst.innerHTML = Array.from({ length: n }, (_, i) => {
+    const a = (i / n) * Math.PI * 2 + Math.random() * 0.4;
+    const r = 60 + Math.random() * 70;
+    const s = [4, 6, 8][i % 3];
+    return `<i style="--dx:${Math.round(Math.cos(a) * r / 4) * 4}px;--dy:${Math.round(Math.sin(a) * r / 4) * 4}px;--s:${s}px;background:${colors[i % colors.length]};animation-delay:${(i % 4) * 30}ms"></i>`;
+  }).join('');
+  document.body.append(burst);
+  setTimeout(() => burst.remove(), 1100);
+}
+
+/** Trophy earned: the golden pixel art with a sparkle burst. With no trophy, just the burst. */
+function celebrate(t = null, at = undefined) {
+  if (!t) { sparkle(at); return; }
   const root = document.createElement('div');
   root.className = 'celebrate';
   root.setAttribute('role', 'status');
-  root.innerHTML = `<div class="celebrate-card"><div class="celebrate-art">${trophySvg(t.kind, 144)}</div>
+  root.innerHTML = `<div class="celebrate-card"><div class="celebrate-art">${trophySvg(t.kind, 144, { glint: true })}</div>
     <div class="px celebrate-name">${TROPHY_NAMES[t.kind] ?? 'TROPHY'} EARNED</div><div class="celebrate-title">${esc(t.title)}</div>
     <button class="btn teal">NICE!</button></div>`;
   document.body.append(root);
+  setTimeout(() => sparkle({ n: 28 }), 250);
   const close = () => root.remove();
   root.addEventListener('click', close);
   setTimeout(close, 6000);
@@ -45,26 +69,39 @@ function celebrate(t) {
 
 let toastTimer;
 function toast(msg, err = false) {
-  document.querySelector('.toast')?.remove();
+  document.querySelectorAll('.toast').forEach((t) => t.remove());
   const el = document.createElement('div');
   el.className = 'toast' + (err ? ' err' : '');
   el.setAttribute('role', 'status');
-  el.textContent = msg;
+  // A finished trophy / season: a gold toast with the pixel cup, and a celebration.
+  const trophy = !err && msg.startsWith('🏆');
+  const fire = !err && msg.startsWith('🔥');
+  if (trophy || fire) {
+    el.classList.toggle('gold', trophy);
+    el.innerHTML = `${pxIcon(trophy ? 'trophy' : 'fire', 12, trophy ? '#7a4a00' : '#ff9f1c')} ${esc(msg.replace(/^(🏆|🔥)\s*/u, ''))}`;
+  } else el.textContent = msg;
   document.body.append(el);
+  if (trophy || fire) celebrate(null, { y: innerHeight - 120, n: trophy ? 22 : 14 });
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.remove(), 2600);
+  toastTimer = setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 200); }, 2600);
 }
 
 const guard = (fn) => async (...args) => {
   try { await fn(...args); } catch (e) { if (e.message !== 'login required') toast(e.message, true); }
 };
 
-function modal(title, html, onMount) {
+function modal(title, html, onMount, { icon = '' } = {}) {
   const root = $('#modal-root');
   root.innerHTML = `<div class="modal-bg"><div class="modal" role="dialog" aria-modal="true" aria-label="${esc(title)}">
-    <button class="icon-btn close" data-close aria-label="Close">✕</button><h3>${esc(title)}</h3>${html}</div></div>`;
+    <button class="icon-btn close" data-close aria-label="Close">✕</button><h3>${icon ? `<span class="h3-ico">${icon}</span>` : ''}${esc(title)}</h3>${html}</div></div>`;
   const bg = root.firstElementChild;
-  const close = () => { root.innerHTML = ''; document.removeEventListener('keydown', onKey); };
+  // Blinks out, then goes; a modal opened meanwhile replaces it at once.
+  const close = () => {
+    document.removeEventListener('keydown', onKey);
+    if (reducedMotion()) { bg.remove(); return; }
+    bg.classList.add('out');
+    setTimeout(() => bg.remove(), 140);
+  };
   const onKey = (e) => { if (e.key === 'Escape') close(); };
   document.addEventListener('keydown', onKey);
   bg.addEventListener('click', (e) => { if (e.target === bg || e.target.closest('[data-close]')) close(); });
@@ -90,7 +127,50 @@ function go(name, push = true) {
   if (push) history.pushState({}, '', name === 'today' ? '/' : '/' + name);
   document.querySelectorAll('.tab').forEach((t) => t.setAttribute('aria-current', t.dataset.view === name ? 'page' : 'false'));
   $('#tabs').classList.remove('hidden');
-  guard(VIEWS[name])();
+  // The new view's sections pixel-pop in; re-renders inside the view don't.
+  clearTimeout(enterTimer);
+  view.classList.add('enter');
+  return guard(VIEWS[name])().then(() => {
+    countUp(view);
+    enterTimer = setTimeout(() => view.classList.remove('enter'), 700);
+  });
+}
+let enterTimer;
+
+// Pixel icons in the shell (tabs, logo).
+document.querySelectorAll('[data-px]').forEach((el) => { el.innerHTML = pxIcon(el.dataset.px, Number(el.dataset.size) || 24); });
+
+// Buttons: a quick pixel flash when pressed.
+document.addEventListener('pointerdown', (e) => {
+  const b = e.target.closest?.('.btn,.chip,.tab');
+  if (!b || b.disabled) return;
+  b.classList.remove('flash');
+  void b.offsetWidth;
+  b.classList.add('flash');
+  setTimeout(() => b.classList.remove('flash'), 260);
+});
+
+/** KPI numbers count up quickly (in chunky steps) when they appear. */
+function countUp(root) {
+  if (reducedMotion()) return;
+  root.querySelectorAll('.kpi .num:not(.counted)').forEach((el) => {
+    el.classList.add('counted');
+    const text = el.textContent;
+    const nums = [...text.matchAll(/\d+(?:\.\d+)?/g)];
+    if (!nums.length || text.length > 16) return;
+    const frames = 10;
+    let f = 0;
+    const tick = () => {
+      f++;
+      const p = f / frames;
+      el.textContent = f >= frames ? text : text.replace(/\d+(?:\.\d+)?/g, (m) => {
+        const dec = (m.split('.')[1] ?? '').length;
+        return (Number(m) * p).toFixed(dec);
+      });
+      if (f < frames) setTimeout(tick, 45);
+    };
+    tick();
+  });
 }
 $('#tabs').addEventListener('click', (e) => { const t = e.target.closest('.tab'); if (t) go(t.dataset.view); });
 window.addEventListener('popstate', () => go(location.pathname.slice(1), false));
@@ -109,7 +189,16 @@ window.trackerSyncAll ??= () => api('POST', '/family/sync', {});
   document.body.prepend(bar);
   const ARM = 70;
   let y0 = null, dy = 0, busy = false;
-  const show = (h, text) => { bar.style.height = `${h}px`; bar.textContent = text; bar.classList.toggle('on', h > 0); };
+  // A bouncing pixel arrow while you pull; a spinning pixel loader while it syncs.
+  let shown = '';
+  const show = (h, text, icon = '', cls = '') => {
+    bar.style.height = `${h}px`;
+    bar.classList.toggle('on', h > 0);
+    const key = text + icon + cls;
+    if (key === shown) return;
+    shown = key;
+    bar.innerHTML = text ? `${icon ? `<span class="ps-ico ${cls}">${pxIcon(icon, 12)}</span>` : ''}<span>${esc(text)}</span>` : '';
+  };
   document.addEventListener('touchstart', (e) => {
     if (busy || window.scrollY > 0 || $('#modal-root')?.firstChild) return;
     y0 = e.touches[0].clientY; dy = 0;
@@ -118,14 +207,14 @@ window.trackerSyncAll ??= () => api('POST', '/family/sync', {});
     if (y0 == null) return;
     dy = e.touches[0].clientY - y0;
     if (dy <= 0 || window.scrollY > 0) { show(0, ''); return; }
-    show(Math.min(dy / 2, 60), dy > ARM ? '↑ LET GO TO SYNC' : '↓ PULL TO SYNC');
+    show(Math.min(dy / 2, 60), dy > ARM ? 'LET GO TO SYNC' : 'PULL TO SYNC', 'arrow', dy > ARM ? 'up' : 'down');
   }, { passive: true });
   document.addEventListener('touchend', async () => {
     if (y0 == null) return;
     y0 = null;
     if (dy <= ARM) { show(0, ''); return; }
     busy = true;
-    show(40, 'SYNCING…');
+    show(40, 'SYNCING', 'spinner', 'spin');
     try {
       await window.trackerSyncAll();
       await refresh();
@@ -176,7 +265,11 @@ function showLogin() {
 // ---------- watching / reading (Today) ----------
 // Posters: the item's own, else the IMDb poster 128bitPlay uses.
 const coverSrc = (i) => i.cover_url || (i.meta?.imdb_id ? `https://images.metahub.space/poster/medium/${i.meta.imdb_id}/img` : null);
-const coverHtml = (i) => (coverSrc(i) ? `<img src="${esc(coverSrc(i))}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span aria-hidden="true">${esc(i.icon ?? '📦')}</span>`);
+// An item's pixel icon: its type's (audiobooks apart from books), in its kind's colour.
+const iconKey = (i) => i.px ?? (i.type === 'book' && i.meta?.format === 'audiobook' ? 'audiobook' : i.type);
+const typeIco = (i, size = 12) => { const k = iconKey(i); return pxIcon(typeIconName(k), size, KIND_COLOR[k] ?? 'currentColor'); };
+const coverHtml = (i) => (coverSrc(i) ? `<img src="${esc(coverSrc(i))}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span class="cover-ico" aria-hidden="true">${typeIco(i, 48)}</span>`);
+const loading = (text = 'LOADING') => `<span class="px-loading" role="status">${esc(text)}<i class="dots" aria-hidden="true"></i><i class="cursor" aria-hidden="true"></i></span>`;
 const showKey = (i) => i.meta?.imdb_id ?? i.meta?.kitsu_id ?? i.title.toLowerCase().replace(/[:\s-]*(season|s)\s*\d+$/i, '').trim();
 
 /** Opens the title in 128bitPlay (bit128://open, handled by Play's app/open.tsx). */
@@ -264,25 +357,25 @@ async function renderContinue(el, cal = null) {
   };
   const shows = [...byShow.values()].filter((u) => !notOut(u)).sort((a, b) => Number(midway(b)) - Number(midway(a)) || recent(a, b));
   const groups = [
-    ['movie', '🎬 MOVIES', active.filter((i) => i.type === 'movie' && (progressOf(i).pct ?? 0) < 100).sort(recent).map((i) => {
+    ['movie', `${pxIcon('movie', 12)} MOVIES`, active.filter((i) => i.type === 'movie' && (progressOf(i).pct ?? 0) < 100).sort(recent).map((i) => {
       const { pct, label } = progressOf(i);
       return mediaCard(i, esc(label || 'Watching'), playBtn(i, null, '▶ RESUME'), pct);
     })],
-    ['show', '📺 TV SHOWS', shows.filter((u) => u.type === 'show').map(epCard)],
-    ['anime', '🌸 ANIME', shows.filter((u) => u.type === 'anime').map(epCard)],
+    ['show', `${pxIcon('show', 12)} TV SHOWS`, shows.filter((u) => u.type === 'show').map(epCard)],
+    ['anime', `${pxIcon('anime', 12)} ANIME`, shows.filter((u) => u.type === 'anime').map(epCard)],
     // Listening now (orange), then reading (brown).
-    ['audiobook', '🎧 AUDIOBOOKS', active.filter((i) => i.type === 'book' && i.meta?.format === 'audiobook').sort(recent).map((i) => {
+    ['audiobook', `${pxIcon('audiobook', 12)} AUDIOBOOKS`, active.filter((i) => i.type === 'book' && i.meta?.format === 'audiobook' && (progressOf(i).pct ?? 0) < 97).sort(recent).map((i) => {
       const { pct, label } = progressOf(i);
-      return mediaCard(i, `🎧 ${esc(label || 'Listening')}${i.creator ? ` · ${esc(i.creator)}` : ''}`, playBtn(i, null, '▶ LISTEN'), pct);
+      return mediaCard(i, `${typeIco(i)} ${esc(label || 'Listening')}${i.creator ? ` · ${esc(i.creator)}` : ''}`, playBtn(i, null, '▶ LISTEN'), pct);
     })],
-    ['book', '📖 BOOKS', active.filter((i) => i.type === 'book' && i.meta?.format !== 'audiobook').sort(recent).map((i) => {
+    ['book', `${pxIcon('book', 12)} BOOKS`, active.filter((i) => i.type === 'book' && i.meta?.format !== 'audiobook').sort(recent).map((i) => {
       const { pct, label } = progressOf(i);
-      return mediaCard(i, `📖 ${esc(label || 'Reading')}${i.creator ? ` · ${esc(i.creator)}` : ''}`, playBtn(i, null, '▶ READ'), pct);
+      return mediaCard(i, `${typeIco(i)} ${esc(label || 'Reading')}${i.creator ? ` · ${esc(i.creator)}` : ''}`, playBtn(i, null, '▶ READ'), pct);
     })],
   ];
   const body = groups.filter(([, , cards]) => cards.length)
     .map(([k, title, cards]) => `<h3 class="sub kind" style="--c:${KIND_COLOR[k]}">${title}</h3><div class="upnext kinded" style="--c:${KIND_COLOR[k]}">${cards.join('')}</div>`).join('');
-  el.innerHTML = `<h2 class="sec">▶ CONTINUE</h2>${body || '<p class="muted">Start something in 128bitPlay and it shows up here.</p>'}`;
+  el.innerHTML = `<h2 class="sec">${pxIcon('play', 12)} CONTINUE</h2>${body || '<p class="muted">Start something in 128bitPlay and it shows up here.</p>'}`;
   el.querySelectorAll('[data-watched]').forEach((b) => b.addEventListener('click', guard(async () => {
     b.disabled = true;
     await api('POST', `/items/${b.dataset.watched}/sessions`, { progress: Number(b.dataset.next) });
@@ -318,11 +411,11 @@ function renderCalendar(el, entries) {
     const k = kindOf(e);
     const note = k === 'movie' ? 'In cinemas: start looking for streams' : k === 'audiobook' ? 'Audiobook out' : k === 'book' ? 'Out' : e.detail;
     return `<div class="cal-entry" style="--c:${KIND_COLOR[k] ?? '#9a97b8'}">
-      <div class="up-cover">${coverHtml({ cover_url: e.cover_url, icon: k === 'movie' ? '🎬' : k === 'anime' ? '🌸' : k === 'audiobook' ? '🎧' : k === 'book' ? '📖' : '📺', meta: {} })}</div>
+      <div class="up-cover">${coverHtml({ cover_url: e.cover_url, px: KIND_NAME[k] ? k : 'show', meta: {} })}</div>
       <div><b>${esc(e.title)}</b><div class="muted">${esc(KIND_NAME[k] ?? k)} · ${esc(k === 'movie' || k === 'book' || k === 'audiobook' ? note : e.detail ?? '')}</div></div></div>`;
   };
   const tba = entries.filter((e) => !e.date);
-  el.innerHTML = `<h2 class="sec">📅 UPCOMING</h2>
+  el.innerHTML = `<h2 class="sec">${pxIcon('calendar', 12)} UPCOMING</h2>
     <div class="cal">
       <div class="cal-head"><button class="btn ghost small" data-month="-1" aria-label="Previous month">‹</button>
         <b>${esc(start.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }).toUpperCase())}</b>
@@ -348,9 +441,9 @@ async function renderToday() {
   const done = trackers.filter((t) => t.today.done).length;
   view.innerHTML = `
     <h1 class="view-title"><span class="t">HOME</span> <span class="muted" style="font-size:.6em">${esc(new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' }))}</span></h1>
-    <div id="continue"></div>
+    <div id="continue">${loading()}</div>
     <div id="upcoming"></div>
-    <details class="habits" id="habits"${habitsOpen() ? ' open' : ''}><summary class="sec">✓ HABITS <span class="muted">${trackers.length ? `${done}/${trackers.length} done today` : ''}</span></summary>
+    <details class="habits" id="habits"${habitsOpen() ? ' open' : ''}><summary class="sec">${pxIcon('check', 12)} HABITS <span class="muted">${trackers.length ? `${done}/${trackers.length} done today` : ''}</span></summary>
       <div class="row" style="margin-bottom:18px"><button class="btn" id="new-tracker">+ NEW TRACKER</button></div>
       ${trackers.length ? `<div class="cards">${trackers.map(trackerCard).join('')}</div>` : `<div class="empty"><span class="px">NO TRACKERS YET</span>Pick a preset — water, sleep, reading, mood — or make your own.</div>`}
     </details>`;
@@ -394,7 +487,7 @@ function trackerCard(t) {
   if (t.kind === 'count' || t.kind === 'duration') {
     const segs = 10;
     const on = Math.min(segs, Math.floor((total / t.target) * segs));
-    meter = `<div class="bar" style="${c}" aria-hidden="true">${Array.from({ length: segs }, (_, i) => `<i class="${i < on ? 'on' : ''}"></i>`).join('')}</div>
+    meter = `<div class="bar" style="${c}" aria-hidden="true">${Array.from({ length: segs }, (_, i) => `<i class="${i < on ? 'on' : ''}" style="--i:${i}"></i>`).join('')}</div>
       <div class="bar-label"><span><b>${esc(fmtNum(total))}</b> / ${esc(fmtNum(t.target))} ${esc(t.unit ?? '')}</span><span>${Math.min(100, Math.round((total / t.target) * 100))}%</span></div>`;
   }
   let btns;
@@ -418,7 +511,7 @@ function trackerCard(t) {
       <div class="card-ico" aria-hidden="true">${esc(t.icon)}</div>
       <div style="min-width:0"><div class="card-title">${esc(t.name)}</div>
         <div class="card-meta">${t.completion_30d}% · 30 days${t.remind_at ? ` · 🔔 ${esc(t.remind_at)}` : ''}${t.listens.length ? ` · auto: ${esc(t.listens.join(', '))}` : ''}</div></div>
-      <div class="streak ${s.current ? '' : 'cold'}" title="Best: ${s.best}">🔥${s.current}</div>
+      <div class="streak ${s.current ? '' : 'cold'}" title="Best: ${s.best}">${pxIcon('fire', 12, s.current ? 'var(--orange)' : 'var(--muted)')}${s.current}</div>
     </div>
     ${meter}
     <div class="strip30" style="${c}" aria-label="Last 30 days">${t.history.map((h, i) => `<i class="${h.done ? 'on' : h.frozen ? 'fz' : ''} ${i === last ? 'today' : ''}" title="${h.day}${h.total ? ' · ' + fmtNum(h.total) : ''}"></i>`).join('')}</div>
@@ -500,7 +593,7 @@ async function renderLibrary() {
   if (state.libQuery) q.set('q', state.libQuery);
   const [items, lists] = await Promise.all([api('GET', '/items?' + q), api('GET', '/collections')]);
   // Audiobooks get their own chip (books with format audiobook), right after books.
-  const types = Object.entries(META.item_types).flatMap(([k, v]) => (k === 'book' ? [[k, v], ['audiobook', { icon: '🎧' }]] : [[k, v]]));
+  const types = Object.entries(META.item_types).flatMap(([k, v]) => (k === 'book' ? [[k, v], ['audiobook', {}]] : [[k, v]]));
   view.innerHTML = `
     <h1 class="view-title"><span class="o">LIBRARY</span></h1>
     <p class="view-sub">Everything you play, watch, read and listen to. 128bitplay games show up here on their own.</p>
@@ -510,12 +603,12 @@ async function renderLibrary() {
       <input class="input" id="lib-q" type="search" placeholder="Search title or creator" aria-label="Search library" value="${esc(state.libQuery)}" style="flex:1;min-width:180px">
     </div>
     <div class="chips lists-strip" role="group" aria-label="Lists">
-      ${lists.map((l) => `<button class="chip list-chip" data-list="${l.id}">📋 ${esc(l.name)} <span class="muted">${l.item_count}</span>${l.show_in_play ? ' <span title="Shows in 128bitPlay">▶</span>' : ''}</button>`).join('')}
+      ${lists.map((l) => `<button class="chip list-chip" data-list="${l.id}">${pxIcon('list', 12)} ${esc(l.name)} <span class="muted">${l.item_count}</span>${l.show_in_play ? ' <span title="Shows in 128bitPlay">▶</span>' : ''}</button>`).join('')}
       <button class="chip" id="new-list">+ NEW LIST</button>
     </div>
     <div class="chips" role="group" aria-label="Type">
       <button class="chip" data-type="" aria-pressed="${!state.libType}">All</button>
-      ${types.map(([k, v]) => `<button class="chip" data-type="${k}" aria-pressed="${state.libType === k}">${v.icon} ${k}</button>`).join('')}
+      ${types.map(([k, v]) => `<button class="chip" data-type="${k}" aria-pressed="${state.libType === k}">${pxIcon(typeIconName(k), 12)} ${k}</button>`).join('')}
     </div>
     <div class="chips" role="group" aria-label="Status">
       <button class="chip" data-status="" aria-pressed="${!state.libStatus}">Everything</button>
@@ -559,7 +652,7 @@ async function renderList(id) {
     <div class="row" style="margin-bottom:16px"><button class="btn" id="list-search">+ SEARCH &amp; ADD</button><button class="btn ghost" id="list-add">FROM LIBRARY</button><button class="btn ghost" id="list-edit">SETTINGS</button></div>
     ${list.is_public && list.share_id ? `<p class="muted" style="font-size:13px;margin-bottom:12px">Share code: <code>${esc(list.share_id)}</code></p>` : ''}
     ${list.items.length ? `<div class="list-items">${list.items.map((i, n) => `<div class="list-row">
-        <div class="li-cover">${i.cover_url ? `<img src="${esc(i.cover_url)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span aria-hidden="true">${esc(i.icon)}</span>`}</div>
+        <div class="li-cover">${i.cover_url ? `<img src="${esc(i.cover_url)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span aria-hidden="true">${typeIco(i, 24)}</span>`}</div>
         <div class="grow"><b>${esc(i.title)}</b><div class="muted" style="font-size:12px">${esc(i.type)}${i.year ? ' · ' + i.year : ''} · ${STATUS_LABEL[i.status].toLowerCase()}</div></div>
         <button class="icon-btn" data-move="${n}" data-dir="-1" aria-label="Move up" ${n === 0 ? 'disabled' : ''}>▲</button>
         <button class="icon-btn" data-move="${n}" data-dir="1" aria-label="Move down" ${n === list.items.length - 1 ? 'disabled' : ''}>▼</button>
@@ -615,7 +708,7 @@ async function addToListModal(list) {
   const have = new Set(list.items.map((i) => i.id));
   modal(`ADD TO ${list.name}`, `<input class="input" id="al-q" type="search" placeholder="Filter" aria-label="Filter" style="margin-bottom:10px">
     <div class="al-list">${items.map((i) => `<label class="list-row al-row" data-t="${esc(i.title.toLowerCase())}"><input type="checkbox" value="${i.id}" ${have.has(i.id) ? 'checked' : ''}>
-      <div class="grow"><b>${esc(i.title)}</b><div class="muted" style="font-size:12px">${esc(i.icon)} ${esc(i.type)}${i.meta?.season ? ' · S' + esc(i.meta.season) : ''}${i.year ? ' · ' + i.year : ''}</div></div></label>`).join('') || '<p class="muted">Nothing in your library of that kind yet.</p>'}</div>
+      <div class="grow"><b>${esc(i.title)}</b><div class="muted" style="font-size:12px">${typeIco(i)} ${esc(i.type)}${i.meta?.season ? ' · S' + esc(i.meta.season) : ''}${i.year ? ' · ' + i.year : ''}</div></div></label>`).join('') || '<p class="muted">Nothing in your library of that kind yet.</p>'}</div>
     <div class="row" style="margin-top:12px"><button class="btn teal" id="al-save">DONE</button></div>`, (m, close) => {
     m.querySelector('#al-q').addEventListener('input', (e) => {
       const q = e.target.value.toLowerCase();
@@ -661,7 +754,7 @@ function tile(i) {
     <div class="cover">${coverHtml(i)}
       <span class="status ${i.status}">${STATUS_LABEL[i.status]}</span>${i.trophy_kind ? `<span class="trophy-badge" title="${TROPHY_NAMES[i.trophy_kind]}">${trophySvg(i.trophy_kind, 30)}</span>` : ''}${i.source !== 'manual' ? `<span class="src">${esc(i.source.replace('128bit', ''))}</span>` : ''}</div>
     <div class="tile-body"><div class="tile-title">${esc(i.title)}</div>
-      <div class="tile-sub">${k === 'audiobook' ? '🎧 audiobook' : `${esc(i.icon)} ${esc(i.type)}`}${i.meta?.season ? ' · S' + esc(i.meta.season) : ''}${i.creator ? ' · ' + esc(i.creator) : ''}${i.year ? ' · ' + i.year : ''}</div>
+      <div class="tile-sub">${typeIco(i)} ${k === 'audiobook' ? 'audiobook' : esc(i.type)}${i.meta?.season ? ' · S' + esc(i.meta.season) : ''}${i.creator ? ' · ' + esc(i.creator) : ''}${i.year ? ' · ' + i.year : ''}</div>
       ${pct != null ? `<div class="mini-bar" title="${pct}%"><span style="width:${pct}%"></span></div>` : ''}
       ${label && i.status !== 'done' ? `<div class="tile-prog">${esc(label)}</div>` : ''}
       ${i.rating ? `<div class="stars"><span style="font-family:var(--sans)">★</span> ${i.rating}/10</div>` : ''}</div>
@@ -699,7 +792,7 @@ function itemModal(item = {}, opts = {}) {
         const lists = await api('GET', '/collections');
         const box = m.querySelector('#if-lists');
         box.innerHTML = lists.length
-          ? lists.map((l) => `<button type="button" class="chip" data-pick-list="${l.id}" aria-pressed="${onLists.has(l.id)}">📋 ${esc(l.name)}</button>`).join('')
+          ? lists.map((l) => `<button type="button" class="chip" data-pick-list="${l.id}" aria-pressed="${onLists.has(l.id)}">${pxIcon('list', 12)} ${esc(l.name)}</button>`).join('')
           : '<span class="muted" style="font-size:13px">No lists yet: Library → + NEW LIST.</span>';
         box.querySelectorAll('[data-pick-list]').forEach((b) => b.addEventListener('click', () => {
           const id = Number(b.dataset.pickList);
@@ -714,7 +807,7 @@ function itemModal(item = {}, opts = {}) {
       const type = form.elements.type.value;
       if (q.length < 2) return;
       const box = m.querySelector('#sr-results');
-      box.innerHTML = '<p class="muted" style="font-size:13px">Searching…</p>';
+      box.innerHTML = `<p class="muted" style="font-size:13px">${loading('SEARCHING')}</p>`;
       m.querySelector('#sr-seasons').innerHTML = '';
       const results = await api('GET', `/search?${new URLSearchParams({ type, q })}`);
       box.innerHTML = results.length ? results.map((r, i) => `<button type="button" class="sr-item" data-i="${i}">
@@ -760,16 +853,16 @@ function itemModal(item = {}, opts = {}) {
 
 function itemDetail(i) {
   const unit = META.item_types[i.type]?.unit ?? '';
-  modal(`${i.icon} ${i.title}`, `
+  modal(i.title, `
     <p class="muted" style="font-size:13px;margin:-8px 0 16px">${esc(i.type)}${i.meta?.season ? ' · Season ' + esc(i.meta.season) : ''}${i.creator ? ' · ' + esc(i.creator) : ''}${i.year ? ' · ' + i.year : ''}${i.source !== 'manual' ? ' · synced from ' + esc(i.source) : ''}</p>
-    ${(i.trophies?.length ? i.trophies : i.trophy ? [i.trophy] : []).map((t) => `<div class="trophy-row">${trophySvg(t.kind, 56)}<div><div class="px" style="font-size:9px;color:#ffc72c;line-height:1.7">${TROPHY_NAMES[t.kind]}${t.season ? ` · SEASON ${t.season}` : ''}</div><div class="muted" style="font-size:12px">Earned ${new Date(t.earned_at).toLocaleDateString()}</div></div></div>`).join('')}
+    ${(i.trophies?.length ? i.trophies : i.trophy ? [i.trophy] : []).map((t) => `<div class="trophy-row">${trophySvg(t.kind, 56, { glint: true })}<div><div class="px" style="font-size:9px;color:#ffc72c;line-height:1.7">${TROPHY_NAMES[t.kind]}${t.season ? ` · SEASON ${t.season}` : ''}</div><div class="muted" style="font-size:12px">Earned ${new Date(t.earned_at).toLocaleDateString()}</div></div></div>`).join('')}
     ${i.type === 'game' ? `<div class="row" style="margin-bottom:14px">${i.meta?.playtime_minutes ? `<span class="muted" style="font-size:13px">⏱ ${fmtMin(i.meta.playtime_minutes)} on ${esc(i.meta.platform ?? i.source)}</span>` : ''}${i.meta?.achievements ? `<span class="muted" style="font-size:13px">🏅 ${i.meta.achievements.unlocked}/${i.meta.achievements.total} achievements</span>` : ''}
       ${i.trophy ? '' : `<button class="btn ghost small" data-perfect="${i.meta?.perfect ? '0' : '1'}">${i.meta?.perfect ? 'UNMARK 100%' : '★ MARK 100%'}</button>`}</div>` : ''}
     <div class="chips" role="group" aria-label="Status">${META.statuses.map((s) => `<button class="chip" data-set-status="${s}" aria-pressed="${i.status === s}">${STATUS_LABEL[s].toLowerCase()}</button>`).join('')}</div>
-    <div class="field"><label>LISTS</label><div class="chips" id="item-lists"><span class="muted" style="font-size:13px">…</span></div></div>
+    <div class="field"><label>LISTS</label><div class="chips" id="item-lists">${loading()}</div></div>
     <div class="field"><label>RATING</label><div class="rating">${Array.from({ length: 10 }, (_, n) => `<button data-rate="${n + 1}" class="${i.rating && n < i.rating ? 'on' : ''}" aria-label="Rate ${n + 1}">${n + 1}</button>`).join('')}</div></div>
     ${(() => { const { pct, label } = progressOf(i); return pct != null || label ? `<div class="where"><div class="mini-bar"><span style="width:${pct ?? 0}%"></span></div><span class="muted">${esc(i.status === 'done' ? 'Finished' : label || pct + '%')}</span></div>` : ''; })()}
-    ${SHOWISH.has(i.type) ? `<h2 class="sec">EPISODES</h2><div id="ep-tracker"><span class="muted" style="font-size:13px">Loading seasons…</span></div>` : `    <h2 class="sec">LOG A SESSION</h2>
+    ${SHOWISH.has(i.type) ? `<h2 class="sec">EPISODES</h2><div id="ep-tracker">${loading('LOADING SEASONS')}</div>` : `    <h2 class="sec">LOG A SESSION</h2>
     <form data-session class="grid2">
       <div class="field"><label for="s-min">MINUTES</label><input class="input" id="s-min" name="minutes" type="number" min="0" max="1440" placeholder="45"></div>
       <div class="field"><label for="s-prog">PROGRESS ${unit ? '(' + esc(unit) + ')' : ''}</label><input class="input" id="s-prog" name="progress" type="number" min="0" step="any" placeholder="${esc(i.progress ?? 0)}${i.progress_total ? ' / ' + i.progress_total : ''}"></div>
@@ -802,7 +895,7 @@ function itemDetail(i) {
       const mine = new Set((i.collections ?? []).map((c) => c.id));
       const box = m.querySelector('#item-lists');
       box.innerHTML = lists.length
-        ? lists.map((l) => `<button type="button" class="chip" data-in-list="${l.id}" aria-pressed="${mine.has(l.id)}">📋 ${esc(l.name)}</button>`).join('')
+        ? lists.map((l) => `<button type="button" class="chip" data-in-list="${l.id}" aria-pressed="${mine.has(l.id)}">${pxIcon('list', 12)} ${esc(l.name)}</button>`).join('')
         : '<span class="muted" style="font-size:13px">No lists yet: make one in the Library.</span>';
       box.querySelectorAll('[data-in-list]').forEach((b) => b.addEventListener('click', guard(async () => {
         const on = b.getAttribute('aria-pressed') !== 'true';
@@ -814,7 +907,7 @@ function itemDetail(i) {
       if (!confirm(`Delete "${i.title}"?`)) return;
       await api('DELETE', `/items/${i.id}`); close(); toast('DELETED'); renderLibrary();
     }));
-  });
+  }, { icon: typeIco(i, 24) });
 }
 
 // A pixel check box: an episode you've watched.
@@ -828,6 +921,8 @@ async function episodeTracker(el, item) {
   try { view = await api('GET', `/items/${item.id}/episodes`); } catch (err) { el.innerHTML = `<p class="muted" style="font-size:13px">${esc(err.message)}</p>`; return; }
   let pick = view.season;
   const today = todayStr();
+  // Episodes ticked since the last draw pop (the first 20 of them).
+  let seen = null;
   const fmtDay = (d) => new Date(d + 'T12:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: d.slice(0, 4) === today.slice(0, 4) ? undefined : 'numeric' });
   const draw = () => {
     if (!view.seasons.length) {
@@ -836,14 +931,18 @@ async function episodeTracker(el, item) {
     }
     const cur = view.seasons.find((s) => s.season === pick) ?? view.seasons[0];
     pick = cur.season;
+    const was = seen?.season === cur.season ? seen.watched : null;
+    seen = { season: cur.season, watched: new Set(cur.episodes.filter((e) => e.watched).map((e) => e.number)) };
+    let pops = 0;
+    const ticked = (e) => e.watched && was && !was.has(e.number) && pops++ < 20;
     el.innerHTML = `
       <div class="chips ep-seasons" role="group" aria-label="Season">${view.seasons.map((s) => `<button class="chip" data-season="${s.season}" aria-pressed="${s.season === pick}">
-        ${s.done ? '🏆 ' : ''}S${s.season} <span class="muted">${s.watched}/${s.total ?? '?'}</span>${!s.watched && s.first_air && s.first_air > today ? ` <span class="muted">· ${esc(fmtDay(s.first_air))}</span>` : ''}</button>`).join('')}</div>
+        ${s.done ? pxIcon('trophy', 12, '#ffc72c') + ' ' : ''}S${s.season} <span class="muted">${s.watched}/${s.total ?? '?'}</span>${!s.watched && s.first_air && s.first_air > today ? ` <span class="muted">· ${esc(fmtDay(s.first_air))}</span>` : ''}</button>`).join('')}</div>
       <div class="row" style="margin:6px 0 8px"><span class="muted" style="font-size:13px">${cur.done ? `✓ Season ${cur.season} finished` : cur.first_air && cur.first_air > today && !cur.watched ? `Season ${cur.season} starts ${esc(fmtDay(cur.first_air))}` : `Season ${cur.season} · ${cur.watched} of ${cur.total ?? '?'} watched`}</span>
         <span class="spacer"></span>${cur.total && cur.watched < cur.total ? `<button class="btn ghost small" data-season-all>✓ WHOLE SEASON</button>` : ''}</div>
       <div class="ep-list">${cur.episodes.map((e) => {
         const future = e.air_date && e.air_date > today;
-        return `<button class="ep-row${e.watched ? ' watched' : ''}" data-ep="${e.number}" aria-pressed="${e.watched}" aria-label="Episode ${e.number}${e.watched ? ', watched' : ''}">
+        return `<button class="ep-row${e.watched ? ' watched' : ''}${ticked(e) ? ' ticked' : ''}" data-ep="${e.number}" aria-pressed="${e.watched}" aria-label="Episode ${e.number}${e.watched ? ', watched' : ''}">
           ${pxCheck(e.watched)}<span class="ep-n px">E${e.number}</span><span class="ep-name">${esc(e.name ?? `Episode ${e.number}`)}</span>
           <span class="muted ep-day">${e.air_date ? (future ? 'airs ' : '') + esc(fmtDay(e.air_date)) : ''}</span></button>`;
       }).join('')}</div>`;
@@ -915,7 +1014,7 @@ async function renderComingUp(el, refresh = false) {
   el.innerHTML = `<h2 class="sec" style="margin-top:0">COMING UP <button class="icon-btn" id="cu-refresh" title="Refresh">⟳</button></h2>
     <div class="coming">${list.slice(0, 12).map((e) => `<button class="coming-item" data-item="${e.item_id}">
       <span class="coming-date px">${esc(day(e.date))}</span>
-      ${e.cover_url ? `<img src="${esc(e.cover_url)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span class="coming-ico">${e.kind === 'release' ? '🎮' : '📺'}</span>`}
+      ${e.cover_url ? `<img src="${esc(e.cover_url)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span class="coming-ico">${pxIcon(e.kind === 'release' ? 'controller' : 'show', 24)}</span>`}
       <span class="coming-text"><b>${esc(e.title)}</b><br><span class="muted">${esc(e.detail)}</span></span></button>`).join('')}</div>`;
   el.querySelector('#cu-refresh').addEventListener('click', () => renderComingUp(el, true));
   el.querySelectorAll('[data-item]').forEach((b) => b.addEventListener('click', guard(async () => itemDetail(await api('GET', `/items/${b.dataset.item}`)))));
@@ -1008,11 +1107,13 @@ async function renderStats() {
   const score = (d) => d.logs + d.events + d.minutes / 15;
   const max = Math.max(1, ...pixels.days.map(score));
   const lvl = (n) => (n === 0 ? 0 : n / max > 0.6 ? 4 : n / max > 0.3 ? 3 : n / max > 0.1 ? 2 : 1);
-  const cell = (d) => {
+  // --d: the cell's diagonal (week + weekday), so the year fades in corner to corner.
+  const cell = (d, n) => {
     const l = lvl(score(d));
-    if (!l) return `<i data-day="${d.day}"></i>`;
-    if (d.top) return `<i data-day="${d.day}" style="background:${KIND_COLOR[d.top]};opacity:${[0, 0.45, 0.65, 0.85, 1][l]}"></i>`;
-    return `<i data-day="${d.day}" class="l${l}"></i>`;
+    const dg = `--d:${Math.floor(n / 7) + (n % 7)}`;
+    if (!l) return `<i data-day="${d.day}" style="${dg}"></i>`;
+    if (d.top) return `<i data-day="${d.day}" style="${dg};background:${KIND_COLOR[d.top]};opacity:${[0, 0.45, 0.65, 0.85, 1][l]}"></i>`;
+    return `<i data-day="${d.day}" class="l${l}" style="${dg}"></i>`;
   };
   const byDay = new Map(pixels.days.map((d) => [d.day, d]));
   const dayLine = (d) => {
@@ -1030,26 +1131,32 @@ async function renderStats() {
     <h1 class="view-title"><span class="o">STATS</span></h1>
     <p class="view-sub">Numbers, not guilt.</p>
     <h2 class="sec" style="margin-top:6px">TROPHY SHELF</h2>
-    <div class="shelf">${TROPHY_KINDS.map((k) => `<div class="shelf-slot ${tro.counts[k] ? 'won' : ''}">${trophySvg(k, 64, { locked: !tro.counts[k] })}
+    <div class="shelf">${TROPHY_KINDS.map((k) => `<div class="shelf-slot ${tro.counts[k] ? 'won' : ''}">${trophySvg(k, 64, { locked: !tro.counts[k], glint: !!tro.counts[k] })}
       <div class="px shelf-n">×${tro.counts[k]}</div><div class="shelf-for">${TROPHY_FOR[k]}</div></div>`).join('')}</div>
     ${recentTrophies.length ? `<div class="shelf-list">${recentTrophies.map((t) => `<div class="shelf-item" title="${esc(TROPHY_NAMES[t.kind])} · ${new Date(t.earned_at).toLocaleDateString()}">${trophySvg(t.kind, 36)}<span>${esc(t.title)}</span></div>`).join('')}</div>` : `<p class="muted" style="font-size:13px;margin:10px 0 0">${tro.trophies.length ? 'Trophies you win show here for a week; the shelf above keeps count of them all.' : 'Finish a movie, a show season, an anime or an audiobook, or 100% a game, to earn your first golden trophy.'}</p>`}
     <h2 class="sec">THE NUMBERS</h2>
     <div class="kpis">
       ${kpi('DONE TODAY', `${s.habits.done_today}/${s.habits.count}`, 'habits')}
-      ${kpi('BEST LIVE STREAK', `🔥${s.habits.best_current_streak}`, `all-time best ${s.habits.best_ever_streak}`)}
+      ${kpi('BEST LIVE STREAK', s.habits.best_current_streak, `all-time best ${s.habits.best_ever_streak}`, pxIcon('fire', 24, 'var(--orange)'))}
       ${kpi('30-DAY RATE', `${s.habits.avg_completion_30d}%`, 'average completion')}
       ${kpi(`FINISHED IN ${year}`, s.finished_this_year, 'games, books, shows…')}
       ${kpi('TIME LOGGED', fmtMin(minutes), timeSplit || 'watching, listening, reading, playing')}
       ${kpi('AVG RATING', s.average_rating ?? '—', 'out of 10')}
     </div>
     <h2 class="sec">${year} IN PIXELS</h2>
-    <div class="pixels" role="img" aria-label="Activity per day in ${year}">${'<i style="visibility:hidden"></i>'.repeat(pad)}${pixels.days.map(cell).join('')}</div>
+    <div class="pixels" role="img" aria-label="Activity per day in ${year}">${'<i style="visibility:hidden"></i>'.repeat(pad)}${pixels.days.map((d, n) => cell(d, n + pad)).join('')}</div>
     <div class="legend">${['show', 'anime', 'movie', 'audiobook', 'book', 'comic'].map((k) => `<span><i style="background:${KIND_COLOR[k]}"></i>${KIND_NAME[k]}</span>`).join('')}<span><i style="background:var(--teal)"></i>Other</span></div>
     <p class="px-day muted" id="px-day">${dayLine(byDay.get(todayStr()) ?? pixels.days.at(-1))}</p>
     <h2 class="sec">LIBRARY</h2>
     ${lib.length ? `<div class="table-wrap"><table class="lib-stats"><thead><tr><th>TYPE</th><th class="n">TOTAL</th><th class="n">ACTIVE</th><th class="n">DONE</th><th class="n">TIME</th></tr></thead><tbody>
-      ${lib.map(([t, v]) => `<tr><td>${esc(t === 'audiobook' ? '🎧' : META.item_types[t]?.icon ?? '📦')} ${esc(t)}</td><td class="n">${v.total}</td><td class="n">${v.active ?? 0}</td><td class="n">${v.done ?? 0}</td><td class="n">${v.minutes ? fmtMin(v.minutes) : '—'}</td></tr>`).join('')}
+      ${lib.map(([t, v]) => `<tr data-history="${esc(t)}" tabindex="0" title="Everything you've ${t === 'audiobook' ? 'listened to' : 'watched / read / played'}"><td>${pxIcon(typeIconName(t), 12, KIND_COLOR[t] ?? 'currentColor')} ${esc(t)}</td><td class="n">${v.total}</td><td class="n">${v.active ?? 0}</td><td class="n">${v.done ?? 0}</td><td class="n">${v.minutes ? fmtMin(v.minutes) : '—'}</td></tr>`).join('')}
     </tbody></table></div>` : `<p class="muted">Library is empty.</p>`}`;
+  // Tap a type: everything of it you've watched, read or listened to, by series.
+  view.querySelectorAll('[data-history]').forEach((r) => {
+    const open = guard(() => renderHistory(r.dataset.history));
+    r.addEventListener('click', open);
+    r.addEventListener('keydown', (e) => { if (e.key === 'Enter') open(); });
+  });
   // Tap a day to see what it was.
   view.querySelectorAll('.pixels [data-day]').forEach((c) => c.addEventListener('click', () => {
     view.querySelectorAll('.pixels .sel').forEach((x) => x.classList.remove('sel'));
@@ -1057,7 +1164,83 @@ async function renderStats() {
     $('#px-day').innerHTML = dayLine(byDay.get(c.dataset.day));
   }));
 }
-const kpi = (k, v, s) => `<div class="kpi"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div><div class="s">${esc(s)}</div></div>`;
+// ---------- STATS → one kind, by series ----------
+const HISTORY_HEAD = { audiobook: 'AUDIOBOOKS YOU\'VE LISTENED TO', book: 'BOOKS YOU\'VE READ', show: 'SHOWS YOU\'VE WATCHED', anime: 'ANIME YOU\'VE WATCHED',
+  movie: 'MOVIES YOU\'VE WATCHED', comic: 'COMICS YOU\'VE READ', game: 'GAMES YOU\'VE PLAYED' };
+async function renderHistory(kind, retry = 0) {
+  if (!retry) view.innerHTML = `<p style="margin-top:30px">${loading('FINDING YOUR SERIES')}</p>`;
+  const h = await api('GET', `/stats/history/${encodeURIComponent(kind)}`);
+  const c = KIND_COLOR[kind] ?? 'var(--teal)';
+  const when = (d) => (d ? new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '');
+  const state = (e) => (e.status === 'done' ? `<span class="h-done">✓ ${esc(when(e.finished_at ?? e.finished_at_guess) || 'finished')}</span>`
+    : e.status === 'active' ? `<span class="h-now">${e.pct != null ? `${e.pct}%` : 'in progress'}${e.watched != null ? ` · ${e.watched}/${e.total ?? '?'}` : ''}</span>`
+    : e.first_air && e.first_air > todayStr() ? `<span class="muted">starts ${esc(when(e.first_air))}</span>`
+    : e.release_date && e.release_date > todayStr() ? `<span class="muted">out ${esc(when(e.release_date))}</span>`
+    : e.on_list ? '<span class="muted">on your list</span>'
+    : e.yours === false ? '<span class="muted">not yet</span>' : `<span class="muted">${esc(STATUS_LABEL[e.status] ?? 'not started')}</span>`);
+  const row = (e) => `<button class="h-row${e.yours === false ? ' not-mine' : ''}${e.status === 'done' ? ' is-done' : ''}" ${e.id ? `data-item="${e.id}"` : 'disabled'}>
+      <span class="h-n px">${e.position != null ? `#${esc(e.position)}` : ''}</span>
+      ${e.cover_url ? `<span class="h-cover"><img src="${esc(e.cover_url)}" alt="" loading="lazy" referrerpolicy="no-referrer"></span>` : '<span class="h-cover"></span>'}
+      <span class="h-main"><span class="h-title">${esc(e.title)}</span>
+        ${e.pct != null && e.status === 'active' ? `<span class="mini-bar"><span style="width:${e.pct}%"></span></span>` : ''}</span>
+      <span class="h-state">${state(e)}</span></button>`;
+  const isBook = kind === 'audiobook' || kind === 'book';
+  // Where you left off: the one you're in the middle of, else the next after your furthest finished.
+  const leftOffBox = (g) => {
+    const lo = g.left_off;
+    if (!lo) return `<div class="h-left caught">${pxIcon('check', 9, 'var(--good)')} CAUGHT UP${g.items.at(-1)?.position != null ? ` · UP TO #${esc(g.items.at(-1).position)}` : ''}</div>`;
+    const verb = lo.status === 'active' ? (isBook ? 'KEEP LISTENING' : 'KEEP WATCHING') : 'NEXT UP';
+    const action = lo.id && isBook
+      ? `<a class="btn teal small" href="${esc(playLink({ type: 'book', title: lo.title, cover_url: lo.cover_url, meta: { play_id: lo.play_id } }))}">▶ ${kind === 'audiobook' ? 'LISTEN' : 'READ'}</a>`
+      : !lo.id && isBook ? `<button class="btn small" data-want="${esc(JSON.stringify({ title: lo.title, creator: g.by, cover_url: lo.cover_url, asin: lo.asin, series: g.name, position: lo.position }))}">+ GET IT</button>` : '';
+    return `<div class="h-left"><span class="h-cover big">${lo.cover_url ? `<img src="${esc(lo.cover_url)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ''}</span>
+      <div class="h-left-main"><div class="px h-left-k">${pxIcon(lo.status === 'active' ? 'play' : 'arrow', 9, c)} ${verb}</div><div class="h-left-t">${lo.position != null ? `#${esc(lo.position)} · ` : ''}${esc(lo.title)}</div>
+        <div class="muted" style="font-size:12px">${lo.status === 'active' ? `${lo.pct ?? 0}% in` : lo.release_date && lo.release_date > todayStr() ? `Out ${esc(when(lo.release_date))}` : lo.id ? 'In your library' : 'Not in your library yet'}</div>
+        <div class="row" style="margin-top:6px">${action}</div></div></div>`;
+  };
+  const group = (g) => {
+    const done = g.items.filter((e) => e.status === 'done').length;
+    return `<section class="h-group" style="--c:${c}">
+      <div class="h-head"><div><div class="h-name">${esc(g.name)}</div><div class="muted" style="font-size:12px">${g.by ? esc(g.by) + ' · ' : ''}${done} of ${g.items.length} finished${g.full_list ? '' : ''}</div></div>
+        ${g.show?.cover_url ? `<span class="h-cover big"><img src="${esc(g.show.cover_url)}" alt="" loading="lazy" referrerpolicy="no-referrer"></span>` : ''}</div>
+      ${leftOffBox(g)}
+      <details class="h-all"${g.items.length <= 6 ? ' open' : ''}><summary class="px">ALL ${g.items.length} ${kind === 'show' || kind === 'anime' ? 'SEASONS' : isBook ? 'BOOKS' : ''}</summary>${g.items.map(row).join('')}</details>
+    </section>`;
+  };
+  const total = (kind === 'show' || kind === 'anime' ? h.groups.length : h.groups.reduce((a, g) => a + g.items.filter((e) => e.yours !== false && e.status !== 'not_started').length, 0)) + h.singles.length;
+  view.innerHTML = `
+    <div class="row" style="margin-bottom:10px"><button class="btn ghost small" id="h-back">← STATS</button></div>
+    <h1 class="view-title" style="--c:${c}">${pxIcon(typeIconName(kind), 18, c)} <span style="color:${c}">${esc(HISTORY_HEAD[kind] ?? kind.toUpperCase())}</span></h1>
+    <p class="view-sub">${total} ${kind === 'show' || kind === 'anime' ? (total === 1 ? 'show' : 'shows') : total === 1 ? 'title' : 'titles'}${h.groups.length && kind !== 'show' && kind !== 'anime' ? ` · ${h.groups.length} ${kind === 'movie' ? 'collections' : 'series'}` : ''}, most recent first.${h.pending ? ' <span class="muted">Still finding series for a few…</span>' : ''}</p>
+    ${h.groups.map(group).join('')}
+    ${h.singles.length ? `<section class="h-group" style="--c:${c}"><div class="h-head"><div class="h-name">${h.groups.length ? (kind === 'movie' ? 'ON THEIR OWN' : 'STANDALONE') : 'ALL'}</div></div>${h.singles.map((e) => row(e)).join('')}</section>` : ''}
+    ${total ? '' : `<div class="empty"><span class="px">NOTHING YET</span>Start something and it shows up here.</div>`}`;
+  $('#h-back').addEventListener('click', guard(renderStats));
+  // First draw: cards pixel-pop in one after another (not on the quiet refills while series load).
+  if (!retry) {
+    view.querySelectorAll('.h-group').forEach((g, n) => g.style.setProperty('--n', Math.min(n, 8)));
+    view.classList.add('enter');
+    clearTimeout(enterTimer);
+    enterTimer = setTimeout(() => view.classList.remove('enter'), 900);
+  }
+  // A book you don't have yet: onto your Audiobooks list (128bitPlay's Wanted).
+  view.querySelectorAll('[data-want]').forEach((b) => b.addEventListener('click', guard(async () => {
+    const w = JSON.parse(b.dataset.want);
+    const item = await api('POST', '/items', { type: 'book', title: w.title, creator: w.creator ?? null, cover_url: w.cover_url ?? null, status: 'planned',
+      meta: { format: kind === 'audiobook' ? 'audiobook' : null, asin: w.asin ?? null, series: w.series, series_position: w.position ?? null, series_checked_at: new Date().toISOString() } });
+    const lists = await api('GET', '/collections');
+    const list = lists.find((l) => /audio/i.test(l.name)) ?? lists.find((l) => l.kind === 'book');
+    if (list) await api('PUT', `/collections/${list.id}/items/${item.id}`);
+    toast(list ? `ADDED TO ${list.name.toUpperCase()}` : 'ADDED');
+    await renderHistory(kind);
+  })));
+  view.querySelectorAll('[data-item]').forEach((b) => b.addEventListener('click', guard(async () => itemDetail(await api('GET', `/items/${b.dataset.item}`)))));
+  window.scrollTo(0, 0);
+  // Series are looked up a few titles at a time: show what's known, then fill in the rest.
+  if (h.pending && retry < 6) setTimeout(() => { if ($('#h-back')) renderHistory(kind, retry + 1).catch(() => {}); }, 400);
+}
+
+const kpi = (k, v, s, icon = '') => `<div class="kpi"><div class="k">${esc(k)}</div><div class="v">${icon}<span class="num">${esc(v)}</span></div><div class="s">${esc(s)}</div></div>`;
 
 // One account: the catalogs come built in. Other trackers are only for moving in.
 const ONE_ACCOUNT = `<p class="muted" style="font-size:13px;line-height:1.7;margin:4px 0 6px">One account for everything. Movies, TV, anime, books, comics and games are built in: search, posters, seasons and new episodes all work, with nothing to connect.</p>
@@ -1438,7 +1621,7 @@ function scrobbleHelp(origin) {
       <p class="muted" style="font-size:13px;line-height:1.6;margin-bottom:8px">Dashboard → Plugins → Catalog → install <b>Webhook</b>, restart. Then Webhook → Add Generic Destination, tick <b>Playback Stop</b> and <b>User Data Saved</b>, and use:</p><div class="code">${esc(url('jellyfin'))}</div></details>
     <details class="platform"><summary><span class="platform-name">🟩 Emby</span><span class="muted platform-state">Emby Premiere</span></summary>
       <p class="muted" style="font-size:13px;line-height:1.6;margin-bottom:8px">Settings → Webhooks → Add Webhook, events <b>Playback Stop</b> and <b>Mark Played</b>:</p><div class="code">${esc(url('emby'))}</div></details>
-    <details class="platform"><summary><span class="platform-name">📦 Kodi, Tautulli, scripts</span><span class="muted platform-state">any JSON</span></summary>
+    <details class="platform"><summary><span class="platform-name">${pxIcon('other', 12)} Kodi, Tautulli, scripts</span><span class="muted platform-state">any JSON</span></summary>
       <p class="muted" style="font-size:13px;line-height:1.6;margin-bottom:8px">POST JSON from a Kodi add-on, Tautulli, Home Assistant or Tasker:</p><div class="code">curl -X POST "${esc(url('generic'))}" \\
   -H "Content-Type: application/json" \\
   -d '{"type":"episode","show":"Frieren","season":1,"episode":28}'</div></details>`;

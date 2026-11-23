@@ -14,17 +14,17 @@
 <body>
 <div class="shell">
   <header class="top">
-    <div class="logo"><span class="logo-mark">📊</span>128bit Tracker</div>
+    <div class="logo"><span class="logo-mark" data-px="logo" data-size="32"></span>128bit Tracker</div>
     <nav class="tabs" id="tabs">
-      <button class="tab" data-view="today"><span class="ico">🏠</span>HOME</button>
-      <button class="tab" data-view="library"><span class="ico">🎮</span>LIBRARY</button>
-      <button class="tab" data-view="timeline"><span class="ico">🗓️</span>TIMELINE</button>
-      <button class="tab" data-view="stats"><span class="ico">📈</span>STATS</button>
-      <button class="tab" data-view="connect"><span class="ico">🔌</span>CONNECT</button>
+      <button class="tab" data-view="today"><span class="ico" data-px="home"></span>HOME</button>
+      <button class="tab" data-view="library"><span class="ico" data-px="controller"></span>LIBRARY</button>
+      <button class="tab" data-view="timeline"><span class="ico" data-px="calendar"></span>TIMELINE</button>
+      <button class="tab" data-view="stats"><span class="ico" data-px="chart"></span>STATS</button>
+      <button class="tab" data-view="connect"><span class="ico" data-px="plug"></span>CONNECT</button>
     </nav>
   </header>
   <div id="update-banner"></div>
-  <main id="view"></main>
+  <main id="view"><p class="boot-loading"><span class="px-loading">LOADING<i class="dots"></i><i class="cursor"></i></span></p></main>
 </div>
 <div id="modal-root"></div>
 <script type="module" src="/app.js"></script>
